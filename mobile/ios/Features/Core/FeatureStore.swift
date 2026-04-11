@@ -15,8 +15,10 @@ public final class FeatureStore: ObservableObject {
     @Published public private(set) var pairedHost: HostBeacon?
 
     @Published public private(set) var instances: [TeamAppInstance] = []
+    @Published public private(set) var knownRestoreRefs: [KnownRestoreRef] = []
     @Published public private(set) var activeInstanceID: String?
     @Published public private(set) var statusSnapshot: TeamAppStatus?
+    @Published public private(set) var activeHostPresence: String?
 
     @Published public private(set) var latestPromptReceipt: PromptAck?
     @Published public private(set) var latestFollowUpReceipt: PromptAck?
@@ -41,11 +43,22 @@ public final class FeatureStore: ObservableObject {
             if let connected = await runtime.currentHost() {
                 discoveredHosts = [connected]
                 pairedHost = connected
+                activeHostPresence = connected.lastKnownHostPresence
                 pairingState = .paired
+                knownRestoreRefs = try await runtime.listKnownRestoreRefs()
             } else {
                 discoveredHosts = []
+                knownRestoreRefs = []
+                activeHostPresence = nil
                 pairingState = .disconnected
             }
+        }
+    }
+
+    public func bootstrap() async {
+        await discoverHosts()
+        if pairedHost != nil {
+            await reloadInstances()
         }
     }
 
@@ -63,7 +76,24 @@ public final class FeatureStore: ObservableObject {
 
             pairedHost = paired
             discoveredHosts = [paired]
+            activeHostPresence = paired.lastKnownHostPresence
             pairingState = .paired
+            knownRestoreRefs = try await runtime.listKnownRestoreRefs()
+            await reloadInstances()
+        }
+    }
+
+    public func pairViaURI(_ rawURI: String, deviceName: String) async {
+        let trimmed = rawURI.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        await performPairingAction(state: .pairing) {
+            let paired = try await runtime.registerPairingURI(trimmed, deviceName: deviceName)
+            pairedHost = paired
+            discoveredHosts = [paired]
+            activeHostPresence = paired.lastKnownHostPresence
+            pairingState = .paired
+            knownRestoreRefs = try await runtime.listKnownRestoreRefs()
             await reloadInstances()
         }
     }
@@ -72,6 +102,8 @@ public final class FeatureStore: ObservableObject {
         await performRemoteAction {
             let updated = try await runtime.listInstances()
             instances = updated
+            knownRestoreRefs = try await runtime.listKnownRestoreRefs()
+            activeHostPresence = await runtime.currentHost()?.lastKnownHostPresence
 
             if activeInstanceID == nil || updated.contains(where: { $0.id == activeInstanceID }) == false {
                 activeInstanceID = updated.first?.id
@@ -137,7 +169,8 @@ public final class FeatureStore: ObservableObject {
                     createdAt: current.createdAt,
                     updatedAt: status.updatedAt,
                     activeSessionID: status.activeSessionID ?? current.activeSessionID,
-                    lastResultPreview: status.latestResult ?? current.lastResultPreview
+                    lastResultPreview: status.latestResult ?? current.lastResultPreview,
+                    restoreRef: current.restoreRef
                 )
             }
         }
@@ -177,6 +210,7 @@ public final class FeatureStore: ObservableObject {
             statusSnapshot = restored.status
             replaceOrAppend(restored.instance)
             instances = try await runtime.listInstances()
+            knownRestoreRefs = try await runtime.listKnownRestoreRefs()
             await refreshStatus()
         }
     }

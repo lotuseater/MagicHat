@@ -1,5 +1,10 @@
 import Foundation
 
+public enum HostConnectionMode: String, Codable, Hashable, Sendable {
+    case lanDirect = "lan_direct"
+    case remoteRelay = "remote_relay"
+}
+
 public struct HostBeacon: Codable, Hashable, Sendable, Identifiable {
     public var id: String { hostID }
     public let hostID: String
@@ -8,6 +13,14 @@ public struct HostBeacon: Codable, Hashable, Sendable, Identifiable {
     public let apiVersion: String
     public let capabilities: [String]
     public let lastSeenAt: Date
+    public let connectionMode: HostConnectionMode?
+    public let sessionToken: String?
+    public let refreshToken: String?
+    public let accessTokenExpiresAt: Date?
+    public let refreshTokenExpiresAt: Date?
+    public let deviceID: String?
+    public let certificatePinsetVersion: String?
+    public let lastKnownHostPresence: String?
 
     public init(
         hostID: String,
@@ -15,7 +28,15 @@ public struct HostBeacon: Codable, Hashable, Sendable, Identifiable {
         baseURL: String,
         apiVersion: String,
         capabilities: [String],
-        lastSeenAt: Date
+        lastSeenAt: Date,
+        connectionMode: HostConnectionMode? = nil,
+        sessionToken: String? = nil,
+        refreshToken: String? = nil,
+        accessTokenExpiresAt: Date? = nil,
+        refreshTokenExpiresAt: Date? = nil,
+        deviceID: String? = nil,
+        certificatePinsetVersion: String? = nil,
+        lastKnownHostPresence: String? = nil
     ) {
         self.hostID = hostID
         self.displayName = displayName
@@ -23,10 +44,22 @@ public struct HostBeacon: Codable, Hashable, Sendable, Identifiable {
         self.apiVersion = apiVersion
         self.capabilities = capabilities
         self.lastSeenAt = lastSeenAt
+        self.connectionMode = connectionMode
+        self.sessionToken = sessionToken
+        self.refreshToken = refreshToken
+        self.accessTokenExpiresAt = accessTokenExpiresAt
+        self.refreshTokenExpiresAt = refreshTokenExpiresAt
+        self.deviceID = deviceID
+        self.certificatePinsetVersion = certificatePinsetVersion
+        self.lastKnownHostPresence = lastKnownHostPresence
     }
 
     public var resolvedBaseURL: URL? {
         URL(string: baseURL)
+    }
+
+    public var resolvedConnectionMode: HostConnectionMode {
+        connectionMode ?? .lanDirect
     }
 }
 
@@ -44,6 +77,23 @@ public enum TeamAppInstanceState: String, Codable, Hashable, Sendable {
     case completed
     case failed
     case unknown
+
+    static func fromRemoteValue(_ rawValue: String?) -> TeamAppInstanceState {
+        switch rawValue?.lowercased() {
+        case "idle":
+            return .idle
+        case "running", "planning", "executing", "reviewing":
+            return .running
+        case "queued":
+            return .queued
+        case "completed", "finished", "complete":
+            return .completed
+        case "failed", "error", "blocked", "needs_attention":
+            return .failed
+        default:
+            return .unknown
+        }
+    }
 }
 
 public struct TeamAppInstance: Codable, Hashable, Sendable, Identifiable {
@@ -54,6 +104,7 @@ public struct TeamAppInstance: Codable, Hashable, Sendable, Identifiable {
     public let updatedAt: Date
     public let activeSessionID: String?
     public let lastResultPreview: String?
+    public let restoreRef: String?
 
     public init(
         id: String,
@@ -62,7 +113,8 @@ public struct TeamAppInstance: Codable, Hashable, Sendable, Identifiable {
         createdAt: Date,
         updatedAt: Date,
         activeSessionID: String?,
-        lastResultPreview: String?
+        lastResultPreview: String?,
+        restoreRef: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -71,6 +123,7 @@ public struct TeamAppInstance: Codable, Hashable, Sendable, Identifiable {
         self.updatedAt = updatedAt
         self.activeSessionID = activeSessionID
         self.lastResultPreview = lastResultPreview
+        self.restoreRef = restoreRef
     }
 }
 
@@ -104,9 +157,13 @@ public struct TeamAppStatus: Codable, Hashable, Sendable {
 
 public struct LaunchInstanceRequest: Codable, Hashable, Sendable {
     public let initialPrompt: String?
+    public let title: String?
+    public let restoreRef: String?
 
-    public init(initialPrompt: String?) {
+    public init(initialPrompt: String?, title: String? = nil, restoreRef: String? = nil) {
         self.initialPrompt = initialPrompt
+        self.title = title
+        self.restoreRef = restoreRef
     }
 }
 
@@ -139,21 +196,39 @@ public struct SessionRestoreResult: Codable, Hashable, Sendable {
     public let status: TeamAppStatus
 }
 
+public struct KnownRestoreRef: Codable, Hashable, Sendable, Identifiable {
+    public var id: String { restoreRef }
+    public let restoreRef: String
+    public let title: String?
+    public let sessionID: String?
+    public let observedAt: Date?
+
+    public init(restoreRef: String, title: String?, sessionID: String?, observedAt: Date?) {
+        self.restoreRef = restoreRef
+        self.title = title
+        self.sessionID = sessionID
+        self.observedAt = observedAt
+    }
+}
+
 public struct SessionSnapshot: Codable, Hashable, Sendable {
     public let host: HostBeacon
     public let activeInstanceID: String?
     public let activeSessionID: String?
+    public let activeRestoreRef: String?
     public let updatedAt: Date
 
     public init(
         host: HostBeacon,
         activeInstanceID: String?,
         activeSessionID: String?,
+        activeRestoreRef: String? = nil,
         updatedAt: Date
     ) {
         self.host = host
         self.activeInstanceID = activeInstanceID
         self.activeSessionID = activeSessionID
+        self.activeRestoreRef = activeRestoreRef
         self.updatedAt = updatedAt
     }
 }

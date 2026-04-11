@@ -14,12 +14,39 @@ public struct RestoreSessionView: View {
             Text("Restore Session")
                 .font(.title3.bold())
 
-            TextField("Team App session ID", text: $sessionID)
+            TextField("Restore ref or Team App session ID", text: $sessionID)
                 .textFieldStyle(.roundedBorder)
 #if os(iOS)
                 .textInputAutocapitalization(.never)
 #endif
                 .disableAutocorrection(true)
+
+            if store.knownRestoreRefs.isEmpty == false {
+                Text("Known Restore Refs")
+                    .font(.headline)
+
+                List(store.knownRestoreRefs) { restoreRef in
+                    Button {
+                        sessionID = restoreRef.restoreRef
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(restoreRef.title ?? restoreRef.restoreRef)
+                                .font(.subheadline.bold())
+                            Text(restoreRef.restoreRef)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if let session = restoreRef.sessionID {
+                                Text("session: \(session)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .listStyle(.plain)
+                .frame(minHeight: 120)
+            }
 
             Button("Restore on PC") {
                 let targetSession = sessionID

@@ -13,6 +13,11 @@ public struct InstanceListView: View {
                 Text("Team App Instances")
                     .font(.title3.bold())
                 Spacer()
+                if let presence = store.activeHostPresence {
+                    Text(presence.capitalized)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button("Refresh") {
                     Task { await store.reloadInstances() }
                 }
@@ -40,6 +45,11 @@ public struct InstanceListView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
+                            if let restoreRef = instance.restoreRef {
+                                Text("restore ref: \(restoreRef)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
 
                         Spacer()

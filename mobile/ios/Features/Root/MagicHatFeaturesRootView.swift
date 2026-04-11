@@ -60,5 +60,8 @@ public struct MagicHatFeaturesRootView: View {
                     .padding(.top, 6)
             }
         }
+        .task {
+            await store.bootstrap()
+        }
     }
 }

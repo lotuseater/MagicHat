@@ -108,6 +108,12 @@ iOS smoke package against the local mock host:
 MAGICHAT_HOST_URL=http://127.0.0.1:18787 ./scripts/mobile-validation/ios_smoke.sh
 ```
 
+iOS source typecheck:
+
+```bash
+./scripts/mobile-validation/ios_typecheck.sh
+```
+
 ## Notes
 
 - The Android client currently assumes a manually entered base URL for the paired PC host.

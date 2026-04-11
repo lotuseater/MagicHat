@@ -4,6 +4,7 @@ public struct PairingView: View {
     @ObservedObject private var store: FeatureStore
     @State private var selectedHostID: String?
     @State private var pin = ""
+    @State private var pairingURI = ""
 
     public init(store: FeatureStore) {
         self.store = store
@@ -23,12 +24,32 @@ public struct PairingView: View {
                 Text("Connected to: \(paired.displayName)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                Text("Mode: \(paired.resolvedConnectionMode.rawValue)\(store.activeHostPresence.map { " • \($0)" } ?? "")")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
+
+            TextField("magichat://pair?... or magichat://host:port?psk=...", text: $pairingURI)
+#if os(iOS)
+                .textInputAutocapitalization(.never)
+#endif
+                .disableAutocorrection(true)
+                .textFieldStyle(.roundedBorder)
+
+            Button("Pair From URI") {
+                let rawURI = pairingURI
+                pairingURI = ""
+                Task {
+                    await store.pairViaURI(rawURI, deviceName: "MagicHat iPhone")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(store.pairingState == .pairing)
 
             Button("Discover Team App Hosts") {
                 Task { await store.discoverHosts() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
 
             List(store.discoveredHosts) { host in
                 Button {

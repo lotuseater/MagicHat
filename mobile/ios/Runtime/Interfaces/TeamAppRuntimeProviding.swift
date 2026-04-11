@@ -3,9 +3,11 @@ import Foundation
 public protocol TeamAppRuntimeProviding: AnyObject {
     func pairToFirstAvailableHost() async throws -> HostBeacon
     func pair(to host: HostBeacon) async throws
+    func registerPairingURI(_ rawURI: String, deviceName: String) async throws -> HostBeacon
     func currentHost() async -> HostBeacon?
 
     func listInstances() async throws -> [TeamAppInstance]
+    func listKnownRestoreRefs() async throws -> [KnownRestoreRef]
     func switchToInstance(id: String) async throws -> TeamAppInstance
     func launchInstance(initialPrompt: String?) async throws -> TeamAppInstance
     func closeInstance(id: String) async throws

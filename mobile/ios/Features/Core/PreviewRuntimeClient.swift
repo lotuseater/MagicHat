@@ -7,7 +7,8 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
         baseURL: "http://127.0.0.1:8765",
         apiVersion: "v1",
         capabilities: ["instances", "prompt", "follow-up", "restore"],
-        lastSeenAt: Date()
+        lastSeenAt: Date(),
+        connectionMode: .lanDirect
     )
 
     private var pairedHost: HostBeacon?
@@ -22,7 +23,8 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
             createdAt: Date().addingTimeInterval(-400),
             updatedAt: Date(),
             activeSessionID: "sess-1",
-            lastResultPreview: "Collecting impacted files"
+            lastResultPreview: "Collecting impacted files",
+            restoreRef: "restore_alpha"
         ),
         TeamAppInstance(
             id: "inst-2",
@@ -31,7 +33,8 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
             createdAt: Date().addingTimeInterval(-800),
             updatedAt: Date(),
             activeSessionID: nil,
-            lastResultPreview: "Waiting for prompt"
+            lastResultPreview: "Waiting for prompt",
+            restoreRef: nil
         )
     ]
 
@@ -49,12 +52,33 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
         pairedHost = host
     }
 
+    public func registerPairingURI(_ rawURI: String, deviceName: String) async throws -> HostBeacon {
+        _ = rawURI
+        _ = deviceName
+        pairedHost = demoHost
+        return demoHost
+    }
+
     public func currentHost() async -> HostBeacon? {
         pairedHost
     }
 
     public func listInstances() async throws -> [TeamAppInstance] {
         instances
+    }
+
+    public func listKnownRestoreRefs() async throws -> [KnownRestoreRef] {
+        instances.compactMap { instance in
+            guard let restoreRef = instance.restoreRef else {
+                return nil
+            }
+            return KnownRestoreRef(
+                restoreRef: restoreRef,
+                title: instance.title,
+                sessionID: instance.activeSessionID,
+                observedAt: Date()
+            )
+        }
     }
 
     public func switchToInstance(id: String) async throws -> TeamAppInstance {
@@ -77,7 +101,8 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
             createdAt: now,
             updatedAt: now,
             activeSessionID: session,
-            lastResultPreview: initialPrompt.map { "Prompt queued: \($0.prefix(60))" } ?? "Booting remote task"
+            lastResultPreview: initialPrompt.map { "Prompt queued: \($0.prefix(60))" } ?? "Booting remote task",
+            restoreRef: "restore_\(Int.random(in: 100...999))"
         )
 
         instances.append(created)
@@ -116,7 +141,8 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
                 createdAt: current.createdAt,
                 updatedAt: Date(),
                 activeSessionID: current.activeSessionID ?? "sess-\(Int.random(in: 100...999))",
-                lastResultPreview: "Prompt queued: \(text.prefix(80))"
+                lastResultPreview: "Prompt queued: \(text.prefix(80))",
+                restoreRef: current.restoreRef
             )
         }
 
@@ -134,7 +160,8 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
                 createdAt: current.createdAt,
                 updatedAt: Date(),
                 activeSessionID: threadID ?? current.activeSessionID,
-                lastResultPreview: "Follow-up queued: \(text.prefix(80))"
+                lastResultPreview: "Follow-up queued: \(text.prefix(80))",
+                restoreRef: current.restoreRef
             )
         }
 
@@ -152,7 +179,8 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
             createdAt: now,
             updatedAt: now,
             activeSessionID: sessionID,
-            lastResultPreview: "Session resumed from rebuild interruption"
+            lastResultPreview: "Session resumed from rebuild interruption",
+            restoreRef: "restore_\(sessionID.lowercased())"
         )
 
         instances.append(restored)
@@ -179,6 +207,7 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
             host: pairedHost,
             activeInstanceID: activeInstanceID,
             activeSessionID: activeSessionID,
+            activeRestoreRef: instances.first(where: { $0.id == activeInstanceID })?.restoreRef,
             updatedAt: Date()
         )
     }

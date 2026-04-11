@@ -2,6 +2,7 @@ import Foundation
 
 public enum HostAPIError: Error, LocalizedError {
     case invalidBaseURL(String)
+    case invalidPairingURI(String)
     case noPairedHost
     case beaconDiscoveryFailed
     case transport(Error)
@@ -9,11 +10,15 @@ public enum HostAPIError: Error, LocalizedError {
     case http(statusCode: Int, message: String)
     case decoding(Error)
     case encoding(Error)
+    case pairingTimedOut
+    case pairingRejected
 
     public var errorDescription: String? {
         switch self {
         case .invalidBaseURL(let raw):
             return "Invalid base URL: \(raw)"
+        case .invalidPairingURI(let raw):
+            return "Invalid pairing URI: \(raw)"
         case .noPairedHost:
             return "No paired host available"
         case .beaconDiscoveryFailed:
@@ -28,6 +33,10 @@ public enum HostAPIError: Error, LocalizedError {
             return "Failed to decode host response: \(error.localizedDescription)"
         case .encoding(let error):
             return "Failed to encode host request: \(error.localizedDescription)"
+        case .pairingTimedOut:
+            return "Timed out waiting for host approval"
+        case .pairingRejected:
+            return "Pairing was rejected on the host"
         }
     }
 }
