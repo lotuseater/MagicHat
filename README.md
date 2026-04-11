@@ -52,6 +52,12 @@ Python transport tests:
 python3 -m pytest tests -q
 ```
 
+Focused Android transport checks:
+
+```bash
+python3 -m pytest tests/android/android_transport_scenarios_test.py -q
+```
+
 Contract gate:
 
 ```bash
@@ -61,12 +67,24 @@ Contract gate:
 Android build:
 
 ```bash
-cd mobile/android
-./gradlew assembleDebug
+./scripts/mobile-validation/android_build.sh
+```
+
+Local mock host for mobile smoke checks:
+
+```bash
+./scripts/mobile-validation/start_mock_host.sh
+```
+
+iOS smoke package against the local mock host:
+
+```bash
+MAGICHAT_HOST_URL=http://127.0.0.1:18787 ./scripts/mobile-validation/ios_smoke.sh
 ```
 
 ## Notes
 
 - The Android client currently assumes a manually entered base URL for the paired PC host.
 - Restore on mobile uses the Team App `session_restore.json` path that exists on the paired PC.
+- The mobile validation scripts auto-detect Homebrew Android SDK and JDK 17 paths on macOS, but they still honor explicit `JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `MAGICHAT_HOST_URL`, and `DEVELOPER_DIR` overrides.
 - The repo now has a real git `HEAD`, so follow-up contract pins should use normal commits plus the contract gate hash rather than treating `GATE_1_CONTRACT_SHA` like a commit id.

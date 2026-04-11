@@ -162,7 +162,7 @@ async function startReplayRuntime() {
       }),
     });
     const doneJson = await done.json();
-    return doneJson.token;
+    return doneJson.session_token;
   }
 
   return {

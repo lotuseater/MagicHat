@@ -448,10 +448,10 @@ class MockHostServer(ThreadingHTTPServer):
                 "stale_hosts": self.state.stale_hosts,
                 "instances": self.state.instances,
             }
-        self.persist_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.persist_file.with_suffix(f"{self.persist_file.suffix}.tmp")
-        tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp_path.replace(self.persist_file)
+            self.persist_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self.persist_file.with_suffix(f"{self.persist_file.suffix}.tmp")
+            tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            tmp_path.replace(self.persist_file)
 
 
 def load_state(args: argparse.Namespace) -> MockState:

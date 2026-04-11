@@ -3,22 +3,26 @@ name: 10-host
 on:
   push:
     paths:
-      - "MagicHat/host/**"
-      - "MagicHat/tests/host/**"
-      - "MagicHat/tests/lan/**"
-      - "MagicHat/scripts/host/**"
-      - "MagicHat/docs/host/**"
-      - "MagicHat/tests/contracts/**"
-      - "MagicHat/.github/workflows/10-host.yml"
+      - "host/**"
+      - "tests/host/**"
+      - "tests/lan/**"
+      - "tests/android/**"
+      - "tests/integration/mobile_host/**"
+      - "scripts/host/**"
+      - "docs/host/**"
+      - "tests/contracts/**"
+      - ".github/workflows/10-host.yml"
   pull_request:
     paths:
-      - "MagicHat/host/**"
-      - "MagicHat/tests/host/**"
-      - "MagicHat/tests/lan/**"
-      - "MagicHat/scripts/host/**"
-      - "MagicHat/docs/host/**"
-      - "MagicHat/tests/contracts/**"
-      - "MagicHat/.github/workflows/10-host.yml"
+      - "host/**"
+      - "tests/host/**"
+      - "tests/lan/**"
+      - "tests/android/**"
+      - "tests/integration/mobile_host/**"
+      - "scripts/host/**"
+      - "docs/host/**"
+      - "tests/contracts/**"
+      - ".github/workflows/10-host.yml"
 
 jobs:
   host-tests:
@@ -26,7 +30,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: MagicHat/host
+        working-directory: host
 
     steps:
       - name: Checkout
@@ -37,7 +41,12 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: "MagicHat/host/package-lock.json"
+          cache-dependency-path: "host/package-lock.json"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
 
       - name: Install Dependencies
         run: npm ci
@@ -47,3 +56,7 @@ jobs:
 
       - name: Replay Contract Fixtures
         run: npm run contract:replay
+
+      - name: Run Android Transport Tests
+        working-directory: .
+        run: python3 -m pytest tests/android/android_transport_scenarios_test.py -q
