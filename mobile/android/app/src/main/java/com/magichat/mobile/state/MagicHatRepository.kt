@@ -2,18 +2,25 @@ package com.magichat.mobile.state
 
 import com.magichat.mobile.model.BeaconHost
 import com.magichat.mobile.model.FollowUpRequest
+import com.magichat.mobile.model.HostConnectionMode
 import com.magichat.mobile.model.InstanceDetail
 import com.magichat.mobile.model.InstanceEvent
 import com.magichat.mobile.model.InstanceWire
+import com.magichat.mobile.model.KnownRestoreRef
 import com.magichat.mobile.model.LaunchInstanceRequest
 import com.magichat.mobile.model.PairedHostRecord
 import com.magichat.mobile.model.PairRequest
 import com.magichat.mobile.model.ProgressSnapshot
 import com.magichat.mobile.model.PromptRequest
+import com.magichat.mobile.model.RemoteDeviceRegisterRequest
+import com.magichat.mobile.model.RemotePairClaimRequest
+import com.magichat.mobile.model.RemoteSessionRefreshRequest
 import com.magichat.mobile.model.SubmissionReceipt
 import com.magichat.mobile.model.TeamAppInstance
 import com.magichat.mobile.network.MagicHatApiFactory
+import com.magichat.mobile.network.RemotePairingUri
 import com.magichat.mobile.network.SseEventStreamClient
+import com.magichat.mobile.security.DeviceKeyStore
 import com.magichat.mobile.storage.PairingSnapshot
 import com.magichat.mobile.storage.PairingStore
 import kotlinx.coroutines.delay
@@ -27,16 +34,18 @@ interface MagicHatRepositoryContract {
 
     suspend fun discoverHosts(baseUrl: String): List<BeaconHost>
     suspend fun pairHost(baseUrl: String, hostId: String, pairingCode: String, deviceName: String): PairedHostRecord
+    suspend fun pairRemote(pairUri: String, deviceName: String): PairedHostRecord
     suspend fun setActiveHost(hostId: String)
     suspend fun removeHost(hostId: String)
 
     suspend fun listInstances(): List<TeamAppInstance>
+    suspend fun listKnownRestoreRefs(): List<KnownRestoreRef>
     suspend fun getInstanceDetail(instanceId: String): InstanceDetail
     suspend fun launchInstance(title: String?): InstanceDetail
     suspend fun closeInstance(instanceId: String)
     suspend fun sendPrompt(instanceId: String, prompt: String): SubmissionReceipt
     suspend fun sendFollowUp(instanceId: String, followUp: String): SubmissionReceipt
-    suspend fun restoreSession(restoreStatePath: String): InstanceDetail
+    suspend fun restoreSession(restoreSelector: String): InstanceDetail
 
     fun observeInstanceEvents(
         instanceId: String,
@@ -49,13 +58,13 @@ interface MagicHatRepositoryContract {
 
 class MagicHatRepository(
     private val pairingStore: PairingStore,
+    private val deviceKeyStore: DeviceKeyStore,
     private val apiFactory: MagicHatApiFactory = MagicHatApiFactory(),
     private val sseEventStreamClient: SseEventStreamClient = SseEventStreamClient(apiFactory),
 ) : MagicHatRepositoryContract {
 
     private data class ActiveContext(
-        val baseUrl: String,
-        val token: String,
+        val record: PairedHostRecord,
     )
 
     override val pairingState: Flow<PairingSnapshot> = pairingStore.state
@@ -63,7 +72,7 @@ class MagicHatRepository(
     override suspend fun discoverHosts(baseUrl: String): List<BeaconHost> {
         val normalizedBaseUrl = normalizeBaseUrl(baseUrl)
         val api = apiFactory.create(normalizedBaseUrl) { null }
-        withLanRetry {
+        withTransportRetry {
             api.getHealth()
         }
 
@@ -87,7 +96,7 @@ class MagicHatRepository(
     ): PairedHostRecord {
         val normalizedBaseUrl = normalizeBaseUrl(baseUrl)
         val api = apiFactory.create(normalizedBaseUrl) { null }
-        val result = withLanRetry {
+        val result = withTransportRetry {
             api.pairHost(
                 PairRequest(
                     pairingCode = pairingCode,
@@ -98,7 +107,7 @@ class MagicHatRepository(
         }
 
         val authedApi = apiFactory.create(normalizedBaseUrl) { result.sessionToken }
-        val hostInfo = withLanRetry {
+        val hostInfo = withTransportRetry {
             authedApi.getHostInfo()
         }
 
@@ -108,6 +117,67 @@ class MagicHatRepository(
             baseUrl = normalizedBaseUrl,
             sessionToken = result.sessionToken,
             pairedAt = Instant.now().toString(),
+            mode = HostConnectionMode.LAN_DIRECT.name.lowercase(),
+        )
+        pairingStore.upsert(record)
+        return record
+    }
+
+    override suspend fun pairRemote(pairUri: String, deviceName: String): PairedHostRecord {
+        val parsed = RemotePairingUri.parse(pairUri)
+        val identity = deviceKeyStore.getOrCreate()
+        val relayApi = apiFactory.createRelay(parsed.relayUrl, { null })
+
+        val claim = withTransportRetry {
+            relayApi.claimBootstrap(
+                RemotePairClaimRequest(
+                    bootstrapToken = parsed.bootstrapToken,
+                    deviceName = deviceName,
+                    platform = "android",
+                    devicePublicKey = identity.publicKeyBase64,
+                ),
+            )
+        }
+
+        var approvedChallenge: String? = null
+        for (attempt in 0 until 60) {
+            val status = relayApi.getClaimStatus(claim.claimId)
+            when (status.status.lowercase()) {
+                "approved" -> {
+                    approvedChallenge = status.challenge
+                    break
+                }
+                "rejected" -> error("Pairing was rejected on the host")
+                "completed" -> error("Pairing claim is no longer available")
+            }
+            delay(1_000)
+        }
+
+        val challenge = approvedChallenge ?: error("Timed out waiting for host approval")
+        val registration = withTransportRetry {
+            relayApi.completeRegistration(
+                RemoteDeviceRegisterRequest(
+                    claimId = claim.claimId,
+                    challenge = challenge,
+                    signature = deviceKeyStore.sign(challenge),
+                ),
+            )
+        }
+
+        val record = PairedHostRecord(
+            hostId = registration.hostId,
+            displayName = registration.hostName,
+            baseUrl = parsed.relayUrl,
+            sessionToken = registration.accessToken,
+            pairedAt = Instant.now().toString(),
+            mode = HostConnectionMode.REMOTE_RELAY.name.lowercase(),
+            relayUrl = parsed.relayUrl,
+            deviceId = registration.deviceId,
+            refreshToken = registration.refreshToken,
+            accessTokenExpiresAt = registration.accessTokenExpiresAt,
+            refreshTokenExpiresAt = registration.refreshTokenExpiresAt,
+            certificatePinsetVersion = registration.certificatePinsetVersion,
+            lastKnownHostPresence = "unknown",
         )
         pairingStore.upsert(record)
         return record
@@ -123,66 +193,149 @@ class MagicHatRepository(
 
     override suspend fun listInstances(): List<TeamAppInstance> {
         val context = requireActiveContext()
-        val api = apiFor(context)
-        return withLanRetry {
-            api.listInstances().instances.map(::toInstanceSummary)
+        return if (isRemote(context.record)) {
+            val api = relayApiFor(context.record)
+            val hostState = withTransportRetry { api.listHosts() }.hosts.firstOrNull { it.hostId == context.record.hostId }
+            if (hostState != null) {
+                pairingStore.upsert(
+                    context.record.copy(
+                        lastKnownHostPresence = hostState.status,
+                    ),
+                )
+            }
+            withTransportRetry {
+                api.listInstances(context.record.hostId).instances.map(::toInstanceSummary)
+            }
+        } else {
+            val api = lanApiFor(context.record)
+            withTransportRetry {
+                api.listInstances().instances.map(::toInstanceSummary)
+            }
+        }
+    }
+
+    override suspend fun listKnownRestoreRefs(): List<KnownRestoreRef> {
+        val context = requireActiveContext()
+        return if (isRemote(context.record)) {
+            withTransportRetry {
+                relayApiFor(context.record).listRestoreRefs(context.record.hostId).restoreRefs
+            }
+        } else {
+            listInstances().mapNotNull { instance ->
+                instance.restoreStatePath?.takeIf { it.isNotBlank() }?.let {
+                    KnownRestoreRef(
+                        restoreRef = it,
+                        title = instance.title,
+                        sessionId = instance.sessionId,
+                    )
+                }
+            }
         }
     }
 
     override suspend fun getInstanceDetail(instanceId: String): InstanceDetail {
         val context = requireActiveContext()
-        val api = apiFor(context)
-        return withLanRetry {
-            toInstanceDetail(api.getInstanceDetail(instanceId))
+        val wire = if (isRemote(context.record)) {
+            withTransportRetry {
+                relayApiFor(context.record).getInstanceDetail(context.record.hostId, instanceId)
+            }
+        } else {
+            withTransportRetry {
+                lanApiFor(context.record).getInstanceDetail(instanceId)
+            }
         }
+        return toInstanceDetail(wire)
     }
 
     override suspend fun launchInstance(title: String?): InstanceDetail {
         val context = requireActiveContext()
-        val api = apiFor(context)
-        val launched = withLanRetry {
-            api.launchInstance(
-                LaunchInstanceRequest(
-                    title = title.takeUnless { it.isNullOrBlank() },
-                ),
-            )
+        val launched = if (isRemote(context.record)) {
+            withTransportRetry {
+                relayApiFor(context.record).launchInstance(
+                    context.record.hostId,
+                    LaunchInstanceRequest(
+                        title = title.takeUnless { it.isNullOrBlank() },
+                    ),
+                )
+            }
+        } else {
+            withTransportRetry {
+                lanApiFor(context.record).launchInstance(
+                    LaunchInstanceRequest(
+                        title = title.takeUnless { it.isNullOrBlank() },
+                    ),
+                )
+            }
         }
         return getInstanceDetail(instanceKey(launched))
     }
 
     override suspend fun closeInstance(instanceId: String) {
         val context = requireActiveContext()
-        val api = apiFor(context)
-        withLanRetry {
-            api.closeInstance(instanceId)
+        if (isRemote(context.record)) {
+            withTransportRetry {
+                relayApiFor(context.record).closeInstance(context.record.hostId, instanceId)
+            }
+        } else {
+            withTransportRetry {
+                lanApiFor(context.record).closeInstance(instanceId)
+            }
         }
     }
 
     override suspend fun sendPrompt(instanceId: String, prompt: String): SubmissionReceipt {
         val context = requireActiveContext()
-        val api = apiFor(context)
-        return withLanRetry {
-            api.sendPrompt(instanceId, PromptRequest(prompt = prompt))
+        return if (isRemote(context.record)) {
+            withTransportRetry {
+                relayApiFor(context.record).sendPrompt(
+                    context.record.hostId,
+                    instanceId,
+                    PromptRequest(prompt = prompt),
+                )
+            }
+        } else {
+            withTransportRetry {
+                lanApiFor(context.record).sendPrompt(instanceId, PromptRequest(prompt = prompt))
+            }
         }
     }
 
     override suspend fun sendFollowUp(instanceId: String, followUp: String): SubmissionReceipt {
         val context = requireActiveContext()
-        val api = apiFor(context)
-        return withLanRetry {
-            api.sendFollowUp(instanceId, FollowUpRequest(message = followUp))
+        return if (isRemote(context.record)) {
+            withTransportRetry {
+                relayApiFor(context.record).sendFollowUp(
+                    context.record.hostId,
+                    instanceId,
+                    FollowUpRequest(message = followUp),
+                )
+            }
+        } else {
+            withTransportRetry {
+                lanApiFor(context.record).sendFollowUp(instanceId, FollowUpRequest(message = followUp))
+            }
         }
     }
 
-    override suspend fun restoreSession(restoreStatePath: String): InstanceDetail {
+    override suspend fun restoreSession(restoreSelector: String): InstanceDetail {
         val context = requireActiveContext()
-        val api = apiFor(context)
-        val launched = withLanRetry {
-            api.launchInstance(
-                LaunchInstanceRequest(
-                    restoreStatePath = restoreStatePath,
-                ),
-            )
+        val launched = if (isRemote(context.record)) {
+            withTransportRetry {
+                relayApiFor(context.record).launchInstance(
+                    context.record.hostId,
+                    LaunchInstanceRequest(
+                        restoreRef = restoreSelector,
+                    ),
+                )
+            }
+        } else {
+            withTransportRetry {
+                lanApiFor(context.record).launchInstance(
+                    LaunchInstanceRequest(
+                        restoreStatePath = restoreSelector,
+                    ),
+                )
+            }
         }
         return getInstanceDetail(instanceKey(launched))
     }
@@ -196,9 +349,15 @@ class MagicHatRepository(
         val activeHostId = snapshot.activeHostId ?: return
         val record = snapshot.pairedHosts.firstOrNull { it.hostId == activeHostId } ?: return
 
+        val path = if (isRemote(record)) {
+            "v2/mobile/hosts/${record.hostId}/instances/${instanceId}/updates"
+        } else {
+            "v1/instances/${instanceId}/updates"
+        }
+
         sseEventStreamClient.start(
-            baseUrl = record.baseUrl,
-            instanceId = instanceId,
+            baseUrl = connectionBaseUrl(record),
+            streamPath = path,
             token = record.sessionToken,
             onEvent = onEvent,
             onState = onState,
@@ -213,18 +372,58 @@ class MagicHatRepository(
         val snapshot = pairingStore.readSnapshot()
         val activeHostId = snapshot.activeHostId
             ?: error("No paired host selected")
-        val record = snapshot.pairedHosts.firstOrNull { it.hostId == activeHostId }
+        var record = snapshot.pairedHosts.firstOrNull { it.hostId == activeHostId }
             ?: error("Active host not found")
 
-        return ActiveContext(
-            baseUrl = record.baseUrl,
-            token = record.sessionToken,
-        )
+        if (isRemote(record)) {
+            record = refreshRemoteSessionIfNeeded(record)
+        }
+
+        return ActiveContext(record = record)
     }
 
-    private fun apiFor(context: ActiveContext) = apiFactory.create(context.baseUrl) { context.token }
+    private suspend fun refreshRemoteSessionIfNeeded(record: PairedHostRecord): PairedHostRecord {
+        val expiresAt = record.accessTokenExpiresAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        if (expiresAt == null || expiresAt.isAfter(Instant.now().plusSeconds(30))) {
+            return record
+        }
 
-    private suspend fun <T> withLanRetry(block: suspend () -> T): T {
+        val refreshToken = record.refreshToken ?: error("Remote refresh token is missing")
+        val refreshed = withTransportRetry {
+            apiFactory.createRelay(
+                connectionBaseUrl(record),
+                tokenProvider = { null },
+                certificatePinsetVersion = record.certificatePinsetVersion,
+            ).refreshSession(RemoteSessionRefreshRequest(refreshToken = refreshToken))
+        }
+
+        val updated = record.copy(
+            sessionToken = refreshed.accessToken,
+            refreshToken = refreshed.refreshToken,
+            accessTokenExpiresAt = refreshed.accessTokenExpiresAt,
+            refreshTokenExpiresAt = refreshed.refreshTokenExpiresAt,
+        )
+        pairingStore.upsert(updated)
+        return updated
+    }
+
+    private fun lanApiFor(record: PairedHostRecord) = apiFactory.create(connectionBaseUrl(record)) { record.sessionToken }
+
+    private fun relayApiFor(record: PairedHostRecord) = apiFactory.createRelay(
+        connectionBaseUrl(record),
+        tokenProvider = { record.sessionToken },
+        certificatePinsetVersion = record.certificatePinsetVersion,
+    )
+
+    private fun connectionBaseUrl(record: PairedHostRecord): String {
+        return if (isRemote(record)) record.relayUrl ?: record.baseUrl else record.baseUrl
+    }
+
+    private fun isRemote(record: PairedHostRecord): Boolean {
+        return HostConnectionMode.fromWire(record.mode) == HostConnectionMode.REMOTE_RELAY
+    }
+
+    private suspend fun <T> withTransportRetry(block: suspend () -> T): T {
         return try {
             block()
         } catch (io: IOException) {
@@ -253,6 +452,7 @@ class MagicHatRepository(
             sessionId = instance.sessionId,
             pid = instance.pid,
             restoreStatePath = preferredRestorePath(instance),
+            restoreRef = instance.restoreRef?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -275,6 +475,7 @@ class MagicHatRepository(
             latestOutput = preferredSummary(instance),
             status = instance.status ?: "ok",
             restoreStatePath = preferredRestorePath(instance),
+            restoreRef = instance.restoreRef?.takeIf { it.isNotBlank() },
             runLogPath = preferredRunLogPath(instance),
         )
     }

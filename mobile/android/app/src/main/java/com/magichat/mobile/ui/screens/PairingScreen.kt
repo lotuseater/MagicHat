@@ -22,9 +22,11 @@ import com.magichat.mobile.state.MagicHatUiState
 fun PairingScreen(
     state: MagicHatUiState,
     onBaseUrlChanged: (String) -> Unit,
+    onRemotePairUriChanged: (String) -> Unit,
     onPairCodeChanged: (String) -> Unit,
     onDiscover: () -> Unit,
     onPair: (String) -> Unit,
+    onPairRemote: () -> Unit,
     onSelectPairedHost: (String) -> Unit,
     onForgetHost: (String) -> Unit,
 ) {
@@ -37,6 +39,15 @@ fun PairingScreen(
             modifier = Modifier.fillMaxWidth(),
             label = { Text("PC Host Base URL (LAN)") },
             placeholder = { Text("http://192.168.1.10:8787/") },
+            singleLine = true,
+        )
+
+        OutlinedTextField(
+            value = state.remotePairUriInput,
+            onValueChange = onRemotePairUriChanged,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Remote Pair URI") },
+            placeholder = { Text("magichat://pair?...") },
             singleLine = true,
         )
 
@@ -54,6 +65,9 @@ fun PairingScreen(
             }
             Button(onClick = { state.discoveredHosts.firstOrNull()?.hostId?.let(onPair) }) {
                 Text("Pair Host")
+            }
+            Button(onClick = onPairRemote) {
+                Text("Pair Remote")
             }
         }
 
@@ -100,6 +114,9 @@ private fun PairedHostRow(
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(host.baseUrl)
+            host.lastKnownHostPresence?.takeIf { it.isNotBlank() }?.let {
+                Text("presence: $it")
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onSelect) {
                     Text("Select")

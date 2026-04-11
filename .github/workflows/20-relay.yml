@@ -1,0 +1,42 @@
+name: 20-relay
+
+on:
+  push:
+    paths:
+      - "relay/**"
+      - "docs/architecture/remote_protocol_v2.md"
+      - "docs/security/remote_threat_model_v2.md"
+      - "scripts/remote-validation/**"
+      - ".github/workflows/20-relay.yml"
+  pull_request:
+    paths:
+      - "relay/**"
+      - "docs/architecture/remote_protocol_v2.md"
+      - "docs/security/remote_threat_model_v2.md"
+      - "scripts/remote-validation/**"
+      - ".github/workflows/20-relay.yml"
+
+jobs:
+  relay-tests:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: relay
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "relay/package-lock.json"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Relay Tests
+        run: npm test

@@ -23,7 +23,7 @@ class SseEventStreamClient(
 
     private data class StreamConfig(
         val baseUrl: String,
-        val instanceId: String,
+        val streamPath: String,
         val token: String,
     )
 
@@ -36,14 +36,14 @@ class SseEventStreamClient(
 
     fun start(
         baseUrl: String,
-        instanceId: String,
+        streamPath: String,
         token: String,
         onEvent: (InstanceEvent) -> Unit,
         onState: (String) -> Unit,
     ) {
         stop()
         closedByClient = false
-        this.active = StreamConfig(baseUrl, instanceId, token)
+        this.active = StreamConfig(baseUrl, streamPath, token)
         this.onEvent = onEvent
         this.onState = onState
         connect()
@@ -63,7 +63,7 @@ class SseEventStreamClient(
         val client = apiFactory.createRawClient(config.token)
         val request = Request.Builder()
             .url(
-                "${config.baseUrl.trimEnd('/')}/v1/instances/${config.instanceId}/updates",
+                "${config.baseUrl.trimEnd('/')}/${config.streamPath.trimStart('/')}",
             )
             .build()
 
@@ -91,7 +91,7 @@ class SseEventStreamClient(
                     onEvent?.invoke(
                         InstanceEvent(
                             type = type ?: "message",
-                            instanceId = config.instanceId,
+                            instanceId = null,
                             message = data,
                         ),
                     )

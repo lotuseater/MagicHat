@@ -2,6 +2,20 @@ package com.magichat.mobile.model
 
 import com.squareup.moshi.Json
 
+enum class HostConnectionMode {
+    LAN_DIRECT,
+    REMOTE_RELAY;
+
+    companion object {
+        fun fromWire(value: String?): HostConnectionMode {
+            return when (value?.lowercase()) {
+                "remote_relay" -> REMOTE_RELAY
+                else -> LAN_DIRECT
+            }
+        }
+    }
+}
+
 enum class InstanceHealthState {
     IDLE,
     RUNNING,
@@ -35,6 +49,14 @@ data class PairedHostRecord(
     @Json(name = "base_url") val baseUrl: String,
     @Json(name = "session_token") val sessionToken: String,
     @Json(name = "paired_at") val pairedAt: String,
+    val mode: String = HostConnectionMode.LAN_DIRECT.name.lowercase(),
+    @Json(name = "relay_url") val relayUrl: String? = null,
+    @Json(name = "device_id") val deviceId: String? = null,
+    @Json(name = "refresh_token") val refreshToken: String? = null,
+    @Json(name = "access_token_expires_at") val accessTokenExpiresAt: String? = null,
+    @Json(name = "refresh_token_expires_at") val refreshTokenExpiresAt: String? = null,
+    @Json(name = "certificate_pinset_version") val certificatePinsetVersion: String? = null,
+    @Json(name = "last_known_host_presence") val lastKnownHostPresence: String? = null,
 )
 
 data class TeamAppInstance(
@@ -46,6 +68,7 @@ data class TeamAppInstance(
     @Json(name = "session_id") val sessionId: String? = null,
     val pid: Int? = null,
     @Json(name = "restore_state_path") val restoreStatePath: String? = null,
+    @Json(name = "restore_ref") val restoreRef: String? = null,
 )
 
 data class ProgressSnapshot(
@@ -61,6 +84,7 @@ data class InstanceDetail(
     @Json(name = "latest_output") val latestOutput: String? = null,
     val status: String = "unknown",
     @Json(name = "restore_state_path") val restoreStatePath: String? = null,
+    @Json(name = "restore_ref") val restoreRef: String? = null,
     @Json(name = "run_log_path") val runLogPath: String? = null,
 )
 
@@ -87,6 +111,78 @@ data class HostInfoResponse(
     @Json(name = "lan_address") val lanAddress: String,
     @Json(name = "api_version") val apiVersion: String,
     val scope: String? = null,
+)
+
+data class RemotePairClaimRequest(
+    @Json(name = "bootstrap_token") val bootstrapToken: String,
+    @Json(name = "device_name") val deviceName: String,
+    val platform: String,
+    @Json(name = "device_public_key") val devicePublicKey: String,
+)
+
+data class RemotePairClaimResponse(
+    @Json(name = "claim_id") val claimId: String,
+    val status: String,
+    @Json(name = "host_id") val hostId: String,
+    @Json(name = "host_name") val hostName: String,
+)
+
+data class RemoteClaimStatusResponse(
+    @Json(name = "claim_id") val claimId: String,
+    val status: String,
+    val challenge: String? = null,
+    @Json(name = "host_id") val hostId: String? = null,
+    @Json(name = "host_name") val hostName: String? = null,
+)
+
+data class RemoteDeviceRegisterRequest(
+    @Json(name = "claim_id") val claimId: String,
+    val challenge: String,
+    val signature: String,
+)
+
+data class RemoteDeviceRegisterResponse(
+    @Json(name = "host_id") val hostId: String,
+    @Json(name = "host_name") val hostName: String,
+    @Json(name = "device_id") val deviceId: String,
+    @Json(name = "access_token") val accessToken: String,
+    @Json(name = "access_token_expires_at") val accessTokenExpiresAt: String,
+    @Json(name = "refresh_token") val refreshToken: String,
+    @Json(name = "refresh_token_expires_at") val refreshTokenExpiresAt: String,
+    @Json(name = "certificate_pinset_version") val certificatePinsetVersion: String? = null,
+)
+
+data class RemoteSessionRefreshRequest(
+    @Json(name = "refresh_token") val refreshToken: String,
+)
+
+data class RemoteSessionRefreshResponse(
+    @Json(name = "access_token") val accessToken: String,
+    @Json(name = "access_token_expires_at") val accessTokenExpiresAt: String,
+    @Json(name = "refresh_token") val refreshToken: String,
+    @Json(name = "refresh_token_expires_at") val refreshTokenExpiresAt: String,
+)
+
+data class RemoteHostWire(
+    @Json(name = "host_id") val hostId: String,
+    @Json(name = "host_name") val hostName: String,
+    val status: String,
+    @Json(name = "last_seen_at") val lastSeenAt: String? = null,
+)
+
+data class RemoteHostsResponse(
+    val hosts: List<RemoteHostWire>,
+)
+
+data class KnownRestoreRef(
+    @Json(name = "restore_ref") val restoreRef: String,
+    val title: String? = null,
+    @Json(name = "session_id") val sessionId: String? = null,
+    @Json(name = "observed_at") val observedAt: String? = null,
+)
+
+data class RestoreRefsResponse(
+    @Json(name = "restore_refs") val restoreRefs: List<KnownRestoreRef>,
 )
 
 data class HealthzResponse(
@@ -136,6 +232,7 @@ data class InstanceWire(
     @Json(name = "run_artifact_dir") val runArtifactDir: String? = null,
     @Json(name = "run_log_path") val runLogPath: String? = null,
     @Json(name = "restore_state_path") val restoreStatePath: String? = null,
+    @Json(name = "restore_ref") val restoreRef: String? = null,
     @Json(name = "started_at") val startedAt: Long? = null,
     @Json(name = "result_summary") val resultSummary: ResultSummaryWire? = null,
     val status: String? = null,
@@ -148,6 +245,7 @@ data class InstanceWire(
 data class LaunchInstanceRequest(
     val title: String? = null,
     @Json(name = "restore_state_path") val restoreStatePath: String? = null,
+    @Json(name = "restore_ref") val restoreRef: String? = null,
     @Json(name = "startup_timeout_ms") val startupTimeoutMs: Int? = null,
 )
 

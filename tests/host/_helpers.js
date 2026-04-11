@@ -26,6 +26,13 @@ export async function createWorkspace() {
         waitMs: 500,
       },
       allowNonWindows: true,
+      remote: {
+        enabled: false,
+        relayUrl: "",
+        allowInsecureRelay: true,
+        remoteStatePath: path.join(root, "magichat_remote_state.json"),
+        bootstrapTtlMs: 10 * 60 * 1000,
+      },
     },
   };
 }

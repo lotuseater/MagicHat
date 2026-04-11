@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 
 host/node_modules/
+relay/node_modules/
+relay/*.sqlite
+relay/*.sqlite-*
 
 mobile/android/.gradle/
 mobile/android/build/

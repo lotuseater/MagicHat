@@ -53,6 +53,9 @@ fun InstanceDetailScreen(
                         Text("Latest output:")
                         Text(detail.latestOutput)
                     }
+                    detail.restoreRef?.takeIf { it.isNotBlank() }?.let {
+                        Text("Restore ref: $it")
+                    }
                     detail.restoreStatePath?.takeIf { it.isNotBlank() }?.let {
                         Text("Restore path: $it")
                     }

@@ -1,5 +1,5 @@
 {
-  "name": "magichat-host",
+  "name": "magichat-relay",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,12 +9,12 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "contract:replay": "node ../scripts/host/replay_contract_fixtures.mjs"
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "better-sqlite3": "^11.8.1",
     "express": "^4.21.2",
-    "qrcode": "^1.5.4",
+    "pg": "^8.13.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

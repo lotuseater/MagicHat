@@ -1,4 +1,5 @@
 import os from "node:os";
+import QRCode from "qrcode";
 import express from "express";
 import { readHostConfig } from "./config.js";
 import { PairingManager } from "./auth/pairingManager.js";
@@ -8,6 +9,9 @@ import { BeaconStore } from "./teamapp/beaconStore.js";
 import { TeamAppIpcClient } from "./teamapp/ipcClient.js";
 import { ProcessController } from "./lifecycle/processController.js";
 import { LifecycleManager } from "./lifecycle/lifecycleManager.js";
+import { HostControlService } from "./operations/hostControlService.js";
+import { RemoteAccessState } from "./remote/remoteAccessState.js";
+import { RelayClient } from "./remote/relayClient.js";
 
 function asyncRoute(handler) {
   return (req, res, next) => {
@@ -36,27 +40,31 @@ function parseBoolean(value, fallback) {
   return fallback;
 }
 
-function buildInstanceDetail(publicInstance, inspect) {
-  return {
-    ...publicInstance,
-    status: inspect?.status || "error",
-    snapshot: inspect?.snapshot || {},
-    chat: Array.isArray(inspect?.chat) ? inspect.chat : [],
-    summary_text: typeof inspect?.summary_text === "string" ? inspect.summary_text : "",
-    terminals_by_agent:
-      inspect?.terminals_by_agent && typeof inspect.terminals_by_agent === "object"
-        ? inspect.terminals_by_agent
-        : {},
-    run_log_path: inspect?.run_log_path || "",
-  };
+function requireLocalhost(req, res, next) {
+  const remoteAddress = req.socket?.remoteAddress || "";
+  const allowed = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+  if (!allowed.has(remoteAddress)) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  next();
 }
 
-function buildTargetedInstanceCommand(instance, command) {
-  return {
-    ...command,
-    instance_id: instance.instance_id || undefined,
-    pid: instance.pid,
-  };
+function errorCodeFor(error) {
+  return error?.code || error?.message || "internal_error";
+}
+
+function statusForError(error) {
+  switch (errorCodeFor(error)) {
+    case "instance_not_found":
+      return 404;
+    case "restore_ref_not_allowed":
+      return 400;
+    case "host_offline":
+      return 409;
+    default:
+      return 500;
+  }
 }
 
 export function createMagicHatRuntime(options = {}) {
@@ -91,6 +99,12 @@ export function createMagicHatRuntime(options = {}) {
       launchConfig: config.launch,
     });
 
+  const remoteAccessState =
+    options.remoteAccessState ||
+    new RemoteAccessState({
+      statePath: config.remote.remoteStatePath,
+    });
+
   const hostInfo = {
     host_id: pairingManager.hostId(),
     host_name: os.hostname(),
@@ -98,6 +112,103 @@ export function createMagicHatRuntime(options = {}) {
     api_version: "1.0.0",
     scope: "lan_only_v1",
   };
+
+  const hostControlService =
+    options.hostControlService ||
+    new HostControlService({
+      beaconStore,
+      ipcClient,
+      lifecycleManager,
+      remoteAccessState,
+    });
+
+  const relaySubscriptions = new Map();
+
+  let relayClient = options.relayClient || null;
+  if (!relayClient && config.remote.enabled && config.remote.relayUrl) {
+    relayClient = new RelayClient({
+      relayUrl: config.remote.relayUrl,
+      allowInsecureRelay: config.remote.allowInsecureRelay,
+      remoteAccessState,
+      hostId: hostInfo.host_id,
+      hostName: hostInfo.host_name,
+      async commandHandler(command, context) {
+        switch (command.kind) {
+          case "list_instances":
+            return { instances: await hostControlService.listRemoteInstances() };
+          case "get_instance_detail":
+            return await hostControlService.getRemoteInstanceDetail(command.params.instance_id);
+          case "launch_instance":
+            return await hostControlService.launchInstance({
+              title: command.params.title,
+              restoreRef: command.params.restore_ref,
+              remoteSafe: true,
+            });
+          case "close_instance":
+            return await hostControlService.closeInstance(command.params.instance_id);
+          case "send_prompt":
+            return await hostControlService.sendPrompt(command.params.instance_id, command.params.prompt);
+          case "send_follow_up":
+            return await hostControlService.sendFollowUp(
+              command.params.instance_id,
+              command.params.message,
+            );
+          case "restore_instance":
+            return await hostControlService.restoreExistingInstance(command.params.instance_id, {
+              restoreRef: command.params.restore_ref,
+              remoteSafe: true,
+            });
+          case "list_known_restore_refs":
+            return { restore_refs: await hostControlService.listKnownRestoreRefs() };
+          case "subscribe_instance_updates": {
+            const subscriptionId = command.params.subscription_id;
+            const instanceId = command.params.instance_id;
+            if (!subscriptionId || !instanceId) {
+              throw new Error("bad_request");
+            }
+            if (relaySubscriptions.has(subscriptionId)) {
+              return { status: "already_subscribed" };
+            }
+            const state = { closed: false };
+            relaySubscriptions.set(subscriptionId, state);
+            hostControlService
+              .streamInstanceUpdates(instanceId, {
+                cursor: command.params.cursor || 0,
+                isClosed: () => state.closed,
+                onChunk: async (_source, event) => {
+                  if (state.closed) {
+                    return;
+                  }
+                  context.sendUpdate({
+                    subscription_id: subscriptionId,
+                    instance_id: instanceId,
+                    event,
+                  });
+                },
+              })
+              .finally(() => {
+                relaySubscriptions.delete(subscriptionId);
+              });
+            return { status: "subscribed", subscription_id: subscriptionId };
+          }
+          case "unsubscribe_instance_updates": {
+            const subscriptionId = command.params.subscription_id;
+            const active = relaySubscriptions.get(subscriptionId);
+            if (active) {
+              active.closed = true;
+              relaySubscriptions.delete(subscriptionId);
+            }
+            return { status: "unsubscribed", subscription_id: subscriptionId };
+          }
+          default: {
+            const error = new Error("unsupported_command");
+            error.code = "unsupported_command";
+            throw error;
+          }
+        }
+      },
+    });
+  }
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
@@ -153,20 +264,10 @@ export function createMagicHatRuntime(options = {}) {
     }),
   );
 
-  async function getInstanceOr404(req, res) {
-    const instance = await beaconStore.getInstanceById(req.params.pid);
-    if (!instance) {
-      res.status(404).json({ error: "instance_not_found" });
-      return null;
-    }
-    return instance;
-  }
-
   app.get(
     "/v1/instances",
     asyncRoute(async (_req, res) => {
-      const instances = await beaconStore.listInstances();
-      res.json({ instances });
+      res.json({ instances: await hostControlService.listInstances() });
     }),
   );
 
@@ -174,55 +275,26 @@ export function createMagicHatRuntime(options = {}) {
     "/v1/instances",
     asyncRoute(async (req, res) => {
       const startupTimeoutMs = Number.parseInt(req.body?.startup_timeout_ms, 10);
-      const launched = await lifecycleManager.launchInstance({
+      const launched = await hostControlService.launchInstance({
+        title: `${req.body?.title || ""}`.trim() || undefined,
+        restoreStatePath: `${req.body?.restore_state_path || ""}`.trim() || undefined,
         startupTimeoutMs: Number.isFinite(startupTimeoutMs) ? startupTimeoutMs : undefined,
       });
-
-      if (req.body?.restore_state_path) {
-        await ipcClient.sendCommand(launched, {
-          cmd: "restore_session",
-          path: `${req.body.restore_state_path}`,
-        });
-      }
-
-      res.status(201).json(beaconStore.toPublicInstance(launched));
+      res.status(201).json(launched);
     }),
   );
 
   app.get(
     "/v1/instances/:pid",
     asyncRoute(async (req, res) => {
-      const instance = await getInstanceOr404(req, res);
-      if (!instance) {
-        return;
-      }
-
-      const inspect = await ipcClient.inspect(instance, {
-        include_chat: true,
-        include_summary: true,
-        include_terminals: true,
-      });
-
-      res.json(buildInstanceDetail(beaconStore.toPublicInstance(instance), inspect));
+      res.json(await hostControlService.getInstanceDetail(req.params.pid));
     }),
   );
 
   app.delete(
     "/v1/instances/:pid",
     asyncRoute(async (req, res) => {
-      const instance = await getInstanceOr404(req, res);
-      if (!instance) {
-        return;
-      }
-
-      await ipcClient.sendCommand(
-        instance,
-        buildTargetedInstanceCommand(instance, {
-          cmd: "close_instance",
-        }),
-      );
-      await lifecycleManager.closeInstance(instance);
-
+      await hostControlService.closeInstance(req.params.pid);
       res.status(202).json({ status: "queued" });
     }),
   );
@@ -230,25 +302,12 @@ export function createMagicHatRuntime(options = {}) {
   app.post(
     "/v1/instances/:pid/prompt",
     asyncRoute(async (req, res) => {
-      const instance = await getInstanceOr404(req, res);
-      if (!instance) {
-        return;
-      }
-
       const prompt = `${req.body?.prompt || ""}`.trim();
       if (!prompt) {
         res.status(400).json({ error: "bad_request" });
         return;
       }
-
-      await ipcClient.sendCommand(
-        instance,
-        buildTargetedInstanceCommand(instance, {
-          cmd: "submit_initial_prompt",
-          prompt,
-        }),
-      );
-
+      await hostControlService.sendPrompt(req.params.pid, prompt);
       res.status(202).json({ status: "queued" });
     }),
   );
@@ -256,25 +315,12 @@ export function createMagicHatRuntime(options = {}) {
   app.post(
     "/v1/instances/:pid/follow-up",
     asyncRoute(async (req, res) => {
-      const instance = await getInstanceOr404(req, res);
-      if (!instance) {
-        return;
-      }
-
       const message = `${req.body?.message || ""}`.trim();
       if (!message) {
         res.status(400).json({ error: "bad_request" });
         return;
       }
-
-      await ipcClient.sendCommand(
-        instance,
-        buildTargetedInstanceCommand(instance, {
-          cmd: "submit_follow_up",
-          prompt: message,
-        }),
-      );
-
+      await hostControlService.sendFollowUp(req.params.pid, message);
       res.status(202).json({ status: "queued" });
     }),
   );
@@ -282,22 +328,12 @@ export function createMagicHatRuntime(options = {}) {
   app.post(
     "/v1/instances/:pid/restore",
     asyncRoute(async (req, res) => {
-      const instance = await getInstanceOr404(req, res);
-      if (!instance) {
-        return;
-      }
-
       const restoreStatePath = `${req.body?.restore_state_path || ""}`.trim();
       if (!restoreStatePath) {
         res.status(400).json({ error: "bad_request" });
         return;
       }
-
-      await ipcClient.sendCommand(instance, {
-        cmd: "restore_session",
-        path: restoreStatePath,
-      });
-
+      await hostControlService.restoreExistingInstance(req.params.pid, { restoreStatePath });
       res.status(202).json({ status: "queued" });
     }),
   );
@@ -305,29 +341,31 @@ export function createMagicHatRuntime(options = {}) {
   app.get(
     "/v1/instances/:pid/poll",
     asyncRoute(async (req, res) => {
-      const instance = await getInstanceOr404(req, res);
-      if (!instance) {
-        return;
-      }
-
+      const instance = await hostControlService.requireInstance(req.params.pid);
       const inspect = await ipcClient.inspect(instance, {
         include_chat: parseBoolean(req.query.include_chat, true),
         include_summary: parseBoolean(req.query.include_summary, true),
         include_terminals: parseBoolean(req.query.include_terminals, true),
       });
-
-      res.json(buildInstanceDetail(beaconStore.toPublicInstance(instance), inspect));
+      res.json({
+        ...hostControlService.beaconStore.toPublicInstance(instance),
+        status: inspect?.status || "error",
+        snapshot: inspect?.snapshot || {},
+        chat: Array.isArray(inspect?.chat) ? inspect.chat : [],
+        summary_text: typeof inspect?.summary_text === "string" ? inspect.summary_text : "",
+        terminals_by_agent:
+          inspect?.terminals_by_agent && typeof inspect?.terminals_by_agent === "object"
+            ? inspect.terminals_by_agent
+            : {},
+        run_log_path: inspect?.run_log_path || "",
+      });
     }),
   );
 
   app.get(
     "/v1/instances/:pid/updates",
     asyncRoute(async (req, res) => {
-      const firstInstance = await getInstanceOr404(req, res);
-      if (!firstInstance) {
-        return;
-      }
-
+      await hostControlService.requireInstance(req.params.pid);
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
@@ -370,13 +408,117 @@ export function createMagicHatRuntime(options = {}) {
     }),
   );
 
+  app.use("/admin/v2", requireLocalhost);
+
+  app.get(
+    "/admin/v2/remote/status",
+    asyncRoute(async (_req, res) => {
+      const identity = remoteAccessState.hostIdentity(hostInfo.host_id, hostInfo.host_name);
+      res.json({
+        enabled: config.remote.enabled,
+        relay_url: config.remote.relayUrl,
+        host_id: hostInfo.host_id,
+        host_name: hostInfo.host_name,
+        host_fingerprint: identity.fingerprint,
+        relay: relayClient?.statusSnapshot() || {
+          connected: false,
+          relay_url: config.remote.relayUrl,
+          host_id: hostInfo.host_id,
+        },
+        pending_approvals: remoteAccessState.listPendingApprovals(),
+      });
+    }),
+  );
+
+  app.post(
+    "/admin/v2/remote/bootstrap",
+    asyncRoute(async (_req, res) => {
+      if (!config.remote.enabled || !config.remote.relayUrl) {
+        res.status(400).json({ error: "remote_disabled" });
+        return;
+      }
+      const bootstrap = remoteAccessState.createPairingBootstrap({
+        relayUrl: config.remote.relayUrl,
+        hostId: hostInfo.host_id,
+        hostName: hostInfo.host_name,
+        ttlMs: config.remote.bootstrapTtlMs,
+      });
+      const qrSvg = await QRCode.toString(bootstrap.pair_uri, { type: "svg", margin: 1 });
+      res.json({
+        ...bootstrap,
+        qr_svg: qrSvg,
+      });
+    }),
+  );
+
+  app.get(
+    "/admin/v2/remote/pending-devices",
+    asyncRoute(async (_req, res) => {
+      res.json({ pending_approvals: remoteAccessState.listPendingApprovals() });
+    }),
+  );
+
+  app.post(
+    "/admin/v2/remote/pending-devices/:claimId/approve",
+    asyncRoute(async (req, res) => {
+      if (!relayClient) {
+        res.status(409).json({ error: "host_offline" });
+        return;
+      }
+      await relayClient.approveClaim(req.params.claimId);
+      res.json({ status: "approved" });
+    }),
+  );
+
+  app.post(
+    "/admin/v2/remote/pending-devices/:claimId/reject",
+    asyncRoute(async (req, res) => {
+      if (!relayClient) {
+        res.status(409).json({ error: "host_offline" });
+        return;
+      }
+      await relayClient.rejectClaim(req.params.claimId);
+      res.json({ status: "rejected" });
+    }),
+  );
+
+  app.get(
+    "/admin/v2/remote/devices",
+    asyncRoute(async (_req, res) => {
+      if (!relayClient) {
+        res.status(409).json({ error: "host_offline" });
+        return;
+      }
+      const devices = await relayClient.listDevices();
+      res.json({ devices });
+    }),
+  );
+
+  app.delete(
+    "/admin/v2/remote/devices/:deviceId",
+    asyncRoute(async (req, res) => {
+      if (!relayClient) {
+        res.status(409).json({ error: "host_offline" });
+        return;
+      }
+      await relayClient.revokeDevice(req.params.deviceId);
+      res.json({ status: "revoked" });
+    }),
+  );
+
+  app.get(
+    "/admin/v2/remote/restore-refs",
+    asyncRoute(async (_req, res) => {
+      res.json({ restore_refs: await hostControlService.listKnownRestoreRefs() });
+    }),
+  );
+
   app.use((error, _req, res, _next) => {
     if (res.headersSent) {
       return;
     }
-
-    res.status(500).json({
-      error: "internal_error",
+    res.status(statusForError(error)).json({
+      error: errorCodeFor(error),
       detail: error?.message || "unknown",
     });
   });
@@ -388,6 +530,9 @@ export function createMagicHatRuntime(options = {}) {
     beaconStore,
     ipcClient,
     lifecycleManager,
+    hostControlService,
+    remoteAccessState,
+    relayClient,
     pairing_code: activePairing.code,
     pairing_expires_at_ms: activePairing.expires_at_ms,
   };

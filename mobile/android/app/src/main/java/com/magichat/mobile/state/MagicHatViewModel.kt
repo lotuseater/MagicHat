@@ -7,8 +7,10 @@ import androidx.lifecycle.viewModelScope
 import com.magichat.mobile.model.BeaconHost
 import com.magichat.mobile.model.InstanceDetail
 import com.magichat.mobile.model.InstanceEvent
+import com.magichat.mobile.model.KnownRestoreRef
 import com.magichat.mobile.model.PairedHostRecord
 import com.magichat.mobile.model.TeamAppInstance
+import com.magichat.mobile.security.DeviceKeyStore
 import com.magichat.mobile.storage.PairingStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +27,7 @@ enum class MagicHatScreen {
 data class MagicHatUiState(
     val screen: MagicHatScreen = MagicHatScreen.PAIRED_PC_SELECTION,
     val baseUrlInput: String = "http://192.168.1.10:8787/",
+    val remotePairUriInput: String = "",
     val pairCodeInput: String = "",
     val launchTitleInput: String = "",
     val restoreSessionInput: String = "",
@@ -33,7 +36,9 @@ data class MagicHatUiState(
     val discoveredHosts: List<BeaconHost> = emptyList(),
     val pairedHosts: List<PairedHostRecord> = emptyList(),
     val activeHostId: String? = null,
+    val activeHostPresence: String? = null,
     val instances: List<TeamAppInstance> = emptyList(),
+    val knownRestoreRefs: List<KnownRestoreRef> = emptyList(),
     val selectedInstanceId: String? = null,
     val selectedDetail: InstanceDetail? = null,
     val streamEvents: List<InstanceEvent> = emptyList(),
@@ -52,10 +57,12 @@ class MagicHatViewModel(
     init {
         viewModelScope.launch {
             repository.pairingState.collect { pairing ->
+                val activeRecord = pairing.pairedHosts.firstOrNull { it.hostId == pairing.activeHostId }
                 _uiState.update { state ->
                     state.copy(
                         pairedHosts = pairing.pairedHosts,
                         activeHostId = pairing.activeHostId,
+                        activeHostPresence = activeRecord?.lastKnownHostPresence,
                     )
                 }
             }
@@ -64,6 +71,10 @@ class MagicHatViewModel(
 
     fun updateBaseUrl(value: String) {
         _uiState.update { it.copy(baseUrlInput = value) }
+    }
+
+    fun updateRemotePairUri(value: String) {
+        _uiState.update { it.copy(remotePairUriInput = value) }
     }
 
     fun updatePairCode(value: String) {
@@ -119,6 +130,27 @@ class MagicHatViewModel(
         }
     }
 
+    fun pairRemote() {
+        launchAction {
+            val state = _uiState.value
+            val pairUri = state.remotePairUriInput.trim()
+            if (pairUri.isBlank()) {
+                error("Remote pair URI is required")
+            }
+            repository.pairRemote(
+                pairUri = pairUri,
+                deviceName = "MagicHat Android",
+            )
+            refreshInstances()
+            _uiState.update {
+                it.copy(
+                    screen = MagicHatScreen.INSTANCES,
+                    remotePairUriInput = "",
+                )
+            }
+        }
+    }
+
     fun selectPairedHost(hostId: String) {
         launchAction {
             repository.setActiveHost(hostId)
@@ -130,14 +162,20 @@ class MagicHatViewModel(
     fun forgetHost(hostId: String) {
         launchAction {
             repository.removeHost(hostId)
-            _uiState.update { it.copy(instances = emptyList(), selectedDetail = null) }
+            _uiState.update { it.copy(instances = emptyList(), knownRestoreRefs = emptyList(), selectedDetail = null) }
         }
     }
 
     fun refreshInstances() {
         launchAction {
             val instances = repository.listInstances()
-            _uiState.update { it.copy(instances = instances) }
+            val restoreRefs = repository.listKnownRestoreRefs()
+            _uiState.update {
+                it.copy(
+                    instances = instances,
+                    knownRestoreRefs = restoreRefs,
+                )
+            }
         }
     }
 
@@ -145,9 +183,11 @@ class MagicHatViewModel(
         launchAction {
             val detail = repository.launchInstance(_uiState.value.launchTitleInput)
             val instances = repository.listInstances()
+            val restoreRefs = repository.listKnownRestoreRefs()
             _uiState.update {
                 it.copy(
                     instances = instances,
+                    knownRestoreRefs = restoreRefs,
                     selectedInstanceId = detail.instance.instanceId,
                     selectedDetail = detail,
                     screen = MagicHatScreen.INSTANCE_DETAIL,
@@ -176,11 +216,13 @@ class MagicHatViewModel(
         launchAction {
             repository.closeInstance(instanceId)
             val instances = repository.listInstances()
+            val restoreRefs = repository.listKnownRestoreRefs()
             val state = _uiState.value
             val nextSelected = state.selectedInstanceId.takeUnless { it == instanceId }
             _uiState.update {
                 it.copy(
                     instances = instances,
+                    knownRestoreRefs = restoreRefs,
                     selectedInstanceId = nextSelected,
                     selectedDetail = if (nextSelected == null) null else it.selectedDetail,
                 )
@@ -215,18 +257,24 @@ class MagicHatViewModel(
         }
     }
 
+    fun pickRestoreRef(restoreRef: String) {
+        _uiState.update { it.copy(restoreSessionInput = restoreRef) }
+    }
+
     fun restoreSession() {
         launchAction {
-            val restoreStatePath = _uiState.value.restoreSessionInput
-            if (restoreStatePath.isBlank()) {
-                error("Restore state path is required")
+            val restoreSelector = _uiState.value.restoreSessionInput
+            if (restoreSelector.isBlank()) {
+                error("Restore path or ref is required")
             }
-            val detail = repository.restoreSession(restoreStatePath)
+            val detail = repository.restoreSession(restoreSelector)
             val instances = repository.listInstances()
+            val restoreRefs = repository.listKnownRestoreRefs()
             _uiState.update {
                 it.copy(
                     restoreSessionInput = "",
                     instances = instances,
+                    knownRestoreRefs = restoreRefs,
                     selectedInstanceId = detail.instance.instanceId,
                     selectedDetail = detail,
                     screen = MagicHatScreen.INSTANCE_DETAIL,
@@ -275,8 +323,12 @@ class MagicHatViewModel(
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    val store = PairingStore(context.applicationContext)
-                    val repository = MagicHatRepository(store)
+                    val appContext = context.applicationContext
+                    val store = PairingStore(appContext)
+                    val repository = MagicHatRepository(
+                        pairingStore = store,
+                        deviceKeyStore = DeviceKeyStore(appContext),
+                    )
                     return MagicHatViewModel(repository) as T
                 }
             }

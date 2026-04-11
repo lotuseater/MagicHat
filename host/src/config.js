@@ -43,6 +43,9 @@ function parseArgs(raw) {
 
 export function readHostConfig(env = process.env) {
   const tempRoot = env.TEMP || env.TMP || os.tmpdir();
+  const statePath =
+    env.MAGICHAT_STATE_PATH ||
+    path.join(tempRoot, "wizard_team_app", "magichat_host_state.json");
 
   return {
     listenHost: env.MAGICHAT_BIND_HOST || "0.0.0.0",
@@ -52,9 +55,7 @@ export function readHostConfig(env = process.env) {
       path.join(tempRoot, "wizard_team_app", "active_instances.json"),
     pairingCodeTtlMs: parsePositiveInt(env.MAGICHAT_PAIRING_TTL_MS, 5 * 60 * 1000),
     tokenTtlMs: parsePositiveInt(env.MAGICHAT_TOKEN_TTL_MS, 24 * 60 * 60 * 1000),
-    statePath:
-      env.MAGICHAT_STATE_PATH ||
-      path.join(tempRoot, "wizard_team_app", "magichat_host_state.json"),
+    statePath,
     launch: {
       command: env.MAGICHAT_TEAM_APP_CMD || "",
       args: parseArgs(env.MAGICHAT_TEAM_APP_ARGS || ""),
@@ -62,5 +63,14 @@ export function readHostConfig(env = process.env) {
       waitMs: parsePositiveInt(env.MAGICHAT_LAUNCH_WAIT_MS, 15000),
     },
     allowNonWindows: env.MAGICHAT_ALLOW_NON_WINDOWS === "1",
+    remote: {
+      enabled: env.MAGICHAT_REMOTE_ENABLED === "1" || !!env.MAGICHAT_RELAY_URL,
+      relayUrl: env.MAGICHAT_RELAY_URL || "",
+      allowInsecureRelay: env.MAGICHAT_ALLOW_INSECURE_RELAY === "1",
+      remoteStatePath:
+        env.MAGICHAT_REMOTE_STATE_PATH ||
+        path.join(path.dirname(statePath), "magichat_remote_state.json"),
+      bootstrapTtlMs: parsePositiveInt(env.MAGICHAT_REMOTE_BOOTSTRAP_TTL_MS, 10 * 60 * 1000),
+    },
   };
 }

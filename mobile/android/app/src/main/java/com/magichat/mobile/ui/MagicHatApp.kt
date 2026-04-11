@@ -72,9 +72,11 @@ fun MagicHatApp(
                 MagicHatScreen.PAIRED_PC_SELECTION -> PairingScreen(
                     state = uiState,
                     onBaseUrlChanged = viewModel::updateBaseUrl,
+                    onRemotePairUriChanged = viewModel::updateRemotePairUri,
                     onPairCodeChanged = viewModel::updatePairCode,
                     onDiscover = viewModel::discoverHosts,
                     onPair = viewModel::pair,
+                    onPairRemote = viewModel::pairRemote,
                     onSelectPairedHost = viewModel::selectPairedHost,
                     onForgetHost = viewModel::forgetHost,
                 )
@@ -87,6 +89,7 @@ fun MagicHatApp(
                     onLaunchInstance = viewModel::launchInstance,
                     onCloseInstance = viewModel::closeInstance,
                     onOpenInstance = viewModel::openInstance,
+                    onPickRestoreRef = viewModel::pickRestoreRef,
                     onRestoreSession = viewModel::restoreSession,
                 )
 

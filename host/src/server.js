@@ -13,10 +13,17 @@ export async function startHostServer(options = {}) {
     instance.on("error", reject);
   });
 
+  if (runtime.relayClient) {
+    runtime.relayClient.start().catch((error) => {
+      console.error(`MagicHat remote relay failed: ${error?.message || error}`);
+    });
+  }
+
   return {
     runtime,
     server,
     async close() {
+      await runtime.relayClient?.close?.();
       await new Promise((resolve, reject) => {
         server.close((error) => {
           if (error) {
