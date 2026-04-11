@@ -1,0 +1,49 @@
+{
+  "seq": 102,
+  "ts": 8532144,
+  "status": "ok",
+  "snapshot": {
+    "status": "ok",
+    "phase": "execution",
+    "instance": {
+      "instance_id": "wizard_team_app_24512_8423112",
+      "session_id": "_auto_24512_20260411_120000",
+      "pid": 24512,
+      "hwnd": 658432
+    },
+    "task_state": {
+      "phase": "execution",
+      "task": "Team App Mobile Control Smoke",
+      "workers_done": 1,
+      "pending_resumes": 0,
+      "review_round": 0,
+      "oversight_round": 0
+    },
+    "restore_refs": {
+      "restore_state_path": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_24512_20260411_120000/session_restore.json",
+      "run_artifact_dir": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_24512_20260411_120000",
+      "run_log_path": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_24512_20260411_120000/team_app_run_20260411_120000_pid24512__auto.jsonl"
+    },
+    "result_summary": {
+      "short_text": "Current run in progress.",
+      "source": "summary_text",
+      "truncated": false
+    },
+    "health": {
+      "network_available": true,
+      "had_agent_errors": false,
+      "pending_resumes": 0
+    }
+  },
+  "chat": [
+    {
+      "sender": "User",
+      "text": "Please continue with the current task.",
+      "plan_related": false
+    }
+  ],
+  "summary_text": "Current run in progress.",
+  "terminals_by_agent": {
+    "worker-1": "Running delegated checks..."
+  }
+}

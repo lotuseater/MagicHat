@@ -1,0 +1,78 @@
+[
+  {
+    "contract_version": "1.0.0",
+    "beacon_schema_version": "1.0.0",
+    "instance_id": "wizard_team_app_24512_8423112",
+    "automation_prefix": "wizard_team_app",
+    "pid": 24512,
+    "hwnd": 658432,
+    "session_id": "_auto_24512_20260411_120000",
+    "phase": "running",
+    "current_task_state": {
+      "phase": "running",
+      "task": "Review current Team App worker status and propose next step.",
+      "workers_done": 1,
+      "pending_resumes": 0,
+      "review_round": 0,
+      "oversight_round": 0
+    },
+    "artifact_dir": "C:/Users/Oleh/AppData/Local/Temp/wizard_team_app/transient/_auto_24512_20260411_120000",
+    "cmd_path": "C:/Users/Oleh/AppData/Local/Temp/wizard_team_app/transient/_auto_24512_20260411_120000/_auto_cmd.json",
+    "resp_path": "C:/Users/Oleh/AppData/Local/Temp/wizard_team_app/transient/_auto_24512_20260411_120000/_auto_resp.jsonl",
+    "events_path": "C:/Users/Oleh/AppData/Local/Temp/wizard_team_app/transient/_auto_24512_20260411_120000/_auto_events.jsonl",
+    "run_artifact_dir": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_24512_20260411_120000",
+    "run_log_path": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_24512_20260411_120000/team_app_run.jsonl",
+    "restore_state_path": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_24512_20260411_120000/session_restore.json",
+    "started_at": 8423112,
+    "heartbeat_ts": 8425120,
+    "last_activity_ts": 8425092,
+    "result_summary": {
+      "short_text": "Worker swarm active",
+      "source": "summary_text",
+      "truncated": false
+    },
+    "health": {
+      "network_available": true,
+      "had_agent_errors": false,
+      "pending_resumes": 0
+    }
+  },
+  {
+    "contract_version": "1.0.0",
+    "beacon_schema_version": "1.0.0",
+    "instance_id": "wizard_team_app_25108_8459904",
+    "automation_prefix": "wizard_team_app",
+    "pid": 25108,
+    "hwnd": 662510,
+    "session_id": "_auto_25108_20260411_121530",
+    "phase": "reviewing",
+    "current_task_state": {
+      "phase": "reviewing",
+      "task": "Audit MagicHat host/mobile API mismatch.",
+      "workers_done": 2,
+      "pending_resumes": 0,
+      "review_round": 1,
+      "oversight_round": 0
+    },
+    "artifact_dir": "C:/Users/Oleh/AppData/Local/Temp/wizard_team_app/transient/_auto_25108_20260411_121530",
+    "cmd_path": "C:/Users/Oleh/AppData/Local/Temp/wizard_team_app/transient/_auto_25108_20260411_121530/_auto_cmd.json",
+    "resp_path": "C:/Users/Oleh/AppData/Local/Temp/wizard_team_app/transient/_auto_25108_20260411_121530/_auto_resp.jsonl",
+    "events_path": "C:/Users/Oleh/AppData/Local/Temp/wizard_team_app/transient/_auto_25108_20260411_121530/_auto_events.jsonl",
+    "run_artifact_dir": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_25108_20260411_121530",
+    "run_log_path": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_25108_20260411_121530/team_app_run.jsonl",
+    "restore_state_path": "C:/Users/Oleh/AppData/Local/wizard_team_app/runs/_auto_25108_20260411_121530/session_restore.json",
+    "started_at": 8459904,
+    "heartbeat_ts": 8461010,
+    "last_activity_ts": 8461002,
+    "result_summary": {
+      "short_text": "Fenrus requested one more review round.",
+      "source": "summary_text",
+      "truncated": false
+    },
+    "health": {
+      "network_available": true,
+      "had_agent_errors": false,
+      "pending_resumes": 0
+    }
+  }
+]

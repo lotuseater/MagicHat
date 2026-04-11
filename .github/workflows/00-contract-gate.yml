@@ -1,0 +1,33 @@
+name: 00-contract-gate
+
+on:
+  push:
+    paths:
+      - 'docs/contract/**'
+      - 'tests/contracts/**'
+      - 'tests/fixtures/contracts/**'
+      - 'scripts/bootstrap/verify_contract_lock.sh'
+      - 'GATE_1_CONTRACT_SHA'
+      - '.github/workflows/00-contract-gate.yml'
+  pull_request:
+    paths:
+      - 'docs/contract/**'
+      - 'tests/contracts/**'
+      - 'tests/fixtures/contracts/**'
+      - 'scripts/bootstrap/verify_contract_lock.sh'
+      - 'GATE_1_CONTRACT_SHA'
+      - '.github/workflows/00-contract-gate.yml'
+  workflow_dispatch:
+
+jobs:
+  contract-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Verify contract lock
+        run: bash scripts/bootstrap/verify_contract_lock.sh

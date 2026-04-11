@@ -1,0 +1,3 @@
+{"ts":8423000,"event":"run_start","pid":24512,"automation_prefix":"_auto","phase":"idle","shutdown_reason":"","session_title":"Team App Mobile Control Smoke"}
+{"ts":8423112,"event":"session_start","pid":24512,"automation_prefix":"_auto","phase":"execution","shutdown_reason":"","session_title":"Team App Mobile Control Smoke"}
+{"ts":8539890,"event":"run_end","pid":24512,"automation_prefix":"_auto","phase":"complete","shutdown_reason":"wm_close","session_title":"Team App Mobile Control Smoke"}

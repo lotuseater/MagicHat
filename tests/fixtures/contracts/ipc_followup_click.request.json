@@ -1,0 +1,7 @@
+{
+  "seq": 104,
+  "cmd": "submit_follow_up",
+  "instance_id": "wizard_team_app_24512_8423112",
+  "prompt": "Please inspect worker-2 logs next.",
+  "target_agent_id": "worker-2"
+}

@@ -1,0 +1,6 @@
+{
+  "seq": 101,
+  "cmd": "submit_initial_prompt",
+  "instance_id": "wizard_team_app_24512_8423112",
+  "prompt": "Review current Team App worker status and propose next step."
+}

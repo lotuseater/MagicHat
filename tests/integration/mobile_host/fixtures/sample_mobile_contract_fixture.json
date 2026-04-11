@@ -1,0 +1,33 @@
+{
+  "name": "pairing-and-list-instances-smoke",
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/healthz"
+      },
+      "expect_status": 200
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/pairing/session",
+        "body": {
+          "pairing_code": "{{pairing_code}}",
+          "device_name": "fixture-client"
+        }
+      },
+      "expect_status": 201
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/v1/instances",
+        "headers": {
+          "Authorization": "Bearer {{session_token}}"
+        }
+      },
+      "expect_status": 200
+    }
+  ]
+}

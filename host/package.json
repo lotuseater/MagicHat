@@ -1,0 +1,21 @@
+{
+  "name": "magichat-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "contract:replay": "node ../scripts/host/replay_contract_fixtures.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}

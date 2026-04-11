@@ -1,0 +1,248 @@
+{
+  "contract_version": "1.0.0",
+  "lock_name": "magichat_v1_contract_lock",
+  "team_app_source": {
+    "repo_path": "../Wizard_Erasmus",
+    "commit": "625b5305cf29f0319dfec7222c4a37ccd857d1e2",
+    "files": [
+      "src/team_app/automation_controller.cpp",
+      "src/team_app/app_window.cpp",
+      "src/team_app/session_restore_service.cpp",
+      "src/team_app/platform_utils.cpp",
+      "src/team_app/README.md",
+      "src/team_app/test_team_app.py"
+    ]
+  },
+  "authority_order": [
+    {
+      "rank": 1,
+      "source": "beacon_identity",
+      "description": "Discovery and lifecycle identity come from Team App beacon entries.",
+      "fields": [
+        "instance_id",
+        "automation_prefix",
+        "pid",
+        "hwnd",
+        "session_id",
+        "phase",
+        "current_task_state",
+        "artifact_dir",
+        "cmd_path",
+        "resp_path",
+        "events_path",
+        "run_artifact_dir",
+        "run_log_path",
+        "restore_state_path",
+        "started_at",
+        "heartbeat_ts",
+        "last_activity_ts",
+        "result_summary",
+        "health"
+      ]
+    },
+    {
+      "rank": 2,
+      "source": "ipc_command_response",
+      "description": "Commands and direct responses are bound to per-instance cmd_path/resp_path files.",
+      "fields": [
+        "cmd_path",
+        "resp_path"
+      ]
+    },
+    {
+      "rank": 3,
+      "source": "events_or_inspect_status",
+      "description": "Use events_path when present; otherwise poll inspect for runtime status/output.",
+      "preferred": "events_path",
+      "fallback": "inspect"
+    },
+    {
+      "rank": 4,
+      "source": "run_log_read_only_fallback",
+      "description": "run_log_path is read-only telemetry fallback only.",
+      "field": "run_log_path"
+    }
+  ],
+  "team_app": {
+    "beacon": {
+      "path": "%TEMP%/wizard_team_app/active_instances.json",
+      "required_fields": [
+        "instance_id",
+        "automation_prefix",
+        "pid",
+        "hwnd",
+        "session_id",
+        "phase",
+        "current_task_state",
+        "artifact_dir",
+        "cmd_path",
+        "resp_path",
+        "events_path",
+        "run_artifact_dir",
+        "run_log_path",
+        "restore_state_path",
+        "started_at",
+        "heartbeat_ts",
+        "last_activity_ts",
+        "result_summary",
+        "health"
+      ]
+    },
+    "command_catalog": [
+      "snapshot",
+      "inspect",
+      "launch_instance",
+      "close_instance",
+      "submit_initial_prompt",
+      "submit_follow_up",
+      "set_startup_profile",
+      "restore_session",
+      "create_team",
+      "get_chat",
+      "select_agent",
+      "send_terminal",
+      "ui_set_text",
+      "ui_click",
+      "ui_send_key",
+      "ui_select_combo",
+      "ui_set_check",
+      "ui_select_tab",
+      "ui_invoke",
+      "get_control_text",
+      "get_view_metrics",
+      "capture_window",
+      "get_terminal_text",
+      "set_headless_prompts",
+      "answer_trust_prompt",
+      "request_project_trust",
+      "get_automation_paths"
+    ],
+    "required_for_magichat": [
+      "snapshot",
+      "inspect",
+      "close_instance",
+      "submit_initial_prompt",
+      "submit_follow_up",
+      "restore_session",
+      "get_automation_paths"
+    ],
+    "ui_invoke_required_actions": []
+  },
+  "magichat": {
+    "open_api": "docs/contract/magichat_api_v1.yaml",
+    "required_api_paths": [
+      "/v1/pairing/session",
+      "/v1/host",
+      "/v1/instances",
+      "/v1/instances/{pid}",
+      "/v1/instances/{pid}/prompt",
+      "/v1/instances/{pid}/follow-up",
+      "/v1/instances/{pid}/restore",
+      "/v1/instances/{pid}/updates",
+      "/v1/instances/{pid}/poll"
+    ],
+    "endpoint_to_team_app": [
+      {
+        "endpoint": "GET /v1/instances",
+        "source": "beacon",
+        "team_app_command": []
+      },
+      {
+        "endpoint": "GET /v1/instances/{pid}",
+        "source": "ipc",
+        "team_app_command": [
+          "inspect"
+        ]
+      },
+      {
+        "endpoint": "POST /v1/instances",
+        "source": "process_spawn",
+        "team_app_command": []
+      },
+      {
+        "endpoint": "DELETE /v1/instances/{pid}",
+        "source": "ipc",
+        "team_app_command": [
+          "close_instance"
+        ]
+      },
+      {
+        "endpoint": "POST /v1/instances/{pid}/prompt",
+        "source": "ipc",
+        "team_app_command": [
+          "submit_initial_prompt"
+        ]
+      },
+      {
+        "endpoint": "POST /v1/instances/{pid}/follow-up",
+        "source": "ipc",
+        "team_app_command": [
+          "submit_follow_up"
+        ]
+      },
+      {
+        "endpoint": "POST /v1/instances/{pid}/restore",
+        "source": "ipc",
+        "team_app_command": [
+          "restore_session"
+        ]
+      },
+      {
+        "endpoint": "GET /v1/instances/{pid}/updates",
+        "source": "events_then_poll",
+        "team_app_command": [
+          "inspect"
+        ]
+      },
+      {
+        "endpoint": "GET /v1/instances/{pid}/poll",
+        "source": "ipc",
+        "team_app_command": [
+          "inspect"
+        ]
+      }
+    ]
+  },
+  "fixtures": {
+    "beacon_sample": "tests/fixtures/contracts/beacon_active_instances.sample.json",
+    "ipc_samples": [
+      "tests/fixtures/contracts/ipc_create_team.request.json",
+      "tests/fixtures/contracts/ipc_create_team.response.json",
+      "tests/fixtures/contracts/ipc_inspect.request.json",
+      "tests/fixtures/contracts/ipc_inspect.response.json",
+      "tests/fixtures/contracts/ipc_followup_set_text.request.json",
+      "tests/fixtures/contracts/ipc_followup_click.request.json",
+      "tests/fixtures/contracts/ipc_restore_session.request.json",
+      "tests/fixtures/contracts/ipc_restore_session.response.json",
+      "tests/fixtures/contracts/ipc_close_instance.request.json",
+      "tests/fixtures/contracts/ipc_close_instance.response.json"
+    ],
+    "stream_samples": [
+      "tests/fixtures/contracts/events_session.sample.jsonl",
+      "tests/fixtures/contracts/run_log.sample.jsonl"
+    ]
+  },
+  "gate": {
+    "hash_algorithm": "sha256",
+    "contract_files": [
+      "docs/contract/team_app_surface_v1.md",
+      "docs/contract/magichat_api_v1.yaml",
+      "tests/contracts/contract_lock.json",
+      "scripts/bootstrap/verify_contract_lock.sh",
+      ".github/workflows/00-contract-gate.yml",
+      "tests/fixtures/contracts/beacon_active_instances.sample.json",
+      "tests/fixtures/contracts/ipc_create_team.request.json",
+      "tests/fixtures/contracts/ipc_create_team.response.json",
+      "tests/fixtures/contracts/ipc_inspect.request.json",
+      "tests/fixtures/contracts/ipc_inspect.response.json",
+      "tests/fixtures/contracts/ipc_followup_set_text.request.json",
+      "tests/fixtures/contracts/ipc_followup_click.request.json",
+      "tests/fixtures/contracts/ipc_restore_session.request.json",
+      "tests/fixtures/contracts/ipc_restore_session.response.json",
+      "tests/fixtures/contracts/ipc_close_instance.request.json",
+      "tests/fixtures/contracts/ipc_close_instance.response.json",
+      "tests/fixtures/contracts/events_session.sample.jsonl",
+      "tests/fixtures/contracts/run_log.sample.jsonl"
+    ]
+  }
+}

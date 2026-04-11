@@ -1,0 +1,66 @@
+import os from "node:os";
+import path from "node:path";
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseArgs(raw) {
+  if (!raw || !raw.trim()) {
+    return [];
+  }
+
+  const args = [];
+  let current = "";
+  let quote = null;
+
+  for (const char of raw.trim()) {
+    if ((char === '"' || char === "'") && !quote) {
+      quote = char;
+      continue;
+    }
+    if (quote && char === quote) {
+      quote = null;
+      continue;
+    }
+    if (!quote && /\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (current) {
+    args.push(current);
+  }
+
+  return args;
+}
+
+export function readHostConfig(env = process.env) {
+  const tempRoot = env.TEMP || env.TMP || os.tmpdir();
+
+  return {
+    listenHost: env.MAGICHAT_BIND_HOST || "0.0.0.0",
+    port: parsePositiveInt(env.MAGICHAT_PORT, 18765),
+    beaconPath:
+      env.MAGICHAT_BEACON_PATH ||
+      path.join(tempRoot, "wizard_team_app", "active_instances.json"),
+    pairingCodeTtlMs: parsePositiveInt(env.MAGICHAT_PAIRING_TTL_MS, 5 * 60 * 1000),
+    tokenTtlMs: parsePositiveInt(env.MAGICHAT_TOKEN_TTL_MS, 24 * 60 * 60 * 1000),
+    statePath:
+      env.MAGICHAT_STATE_PATH ||
+      path.join(tempRoot, "wizard_team_app", "magichat_host_state.json"),
+    launch: {
+      command: env.MAGICHAT_TEAM_APP_CMD || "",
+      args: parseArgs(env.MAGICHAT_TEAM_APP_ARGS || ""),
+      cwd: env.MAGICHAT_TEAM_APP_CWD || process.cwd(),
+      waitMs: parsePositiveInt(env.MAGICHAT_LAUNCH_WAIT_MS, 15000),
+    },
+    allowNonWindows: env.MAGICHAT_ALLOW_NON_WINDOWS === "1",
+  };
+}
