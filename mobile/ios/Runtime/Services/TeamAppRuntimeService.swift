@@ -3,7 +3,7 @@ import Foundation
 public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
     private let beaconDiscovery: BeaconDiscovering
     private let persistence: RuntimePersistence
-    private let makeClient: @Sendable (URL) -> HostAPIClient
+    private let makeClient: @Sendable (URL, String?) -> HostAPIClient
     private let makeRelayClient: @Sendable (URL, String?, String?) throws -> RelayAPIClient
     private let deviceKeyStore: DeviceKeyStore
     private let eventStreamClient: any InstanceEventStreaming
@@ -16,7 +16,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
     public init(
         beaconDiscovery: BeaconDiscovering,
         persistence: RuntimePersistence,
-        makeClient: @escaping @Sendable (URL) -> HostAPIClient
+        makeClient: @escaping @Sendable (URL, String?) -> HostAPIClient
     ) {
         self.init(
             beaconDiscovery: beaconDiscovery,
@@ -38,7 +38,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         beaconDiscovery: BeaconDiscovering,
         persistence: RuntimePersistence,
         deviceKeyStore: DeviceKeyStore,
-        makeClient: @escaping @Sendable (URL) -> HostAPIClient,
+        makeClient: @escaping @Sendable (URL, String?) -> HostAPIClient,
         makeRelayClient: @escaping @Sendable (URL, String?, String?) throws -> RelayAPIClient,
         eventStreamClient: any InstanceEventStreaming
     ) {
@@ -50,7 +50,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         self.eventStreamClient = eventStreamClient
     }
 
-    public func pairToFirstAvailableHost() async throws -> HostBeacon {
+    public func pairToFirstAvailableHost(pairingCode: String?) async throws -> HostBeacon {
         try await ensureBootstrapped()
 
         let beacons = try await beaconDiscovery.discoverBeacons()
@@ -58,31 +58,45 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             throw HostAPIError.beaconDiscoveryFailed
         }
 
-        try await pair(to: first)
-        return first
+        try await pair(to: first, pairingCode: pairingCode)
+        return try await currentHostRecord()
     }
 
-    public func pair(to host: HostBeacon) async throws {
+    public func pair(to host: HostBeacon, pairingCode: String?) async throws {
         try await ensureBootstrapped()
         guard let baseURL = host.resolvedBaseURL else {
             throw HostAPIError.invalidBaseURL(host.baseURL)
         }
 
+        let probeClient = makeClient(baseURL, nil)
+        _ = try await probeClient.fetchHealth()
+
+        let normalizedPairingCode = pairingCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalizedPairingCode, normalizedPairingCode.isEmpty == false else {
+            throw HostAPIError.missingPairingCode
+        }
+
+        let session = try await probeClient.beginPairing(
+            pairingCode: normalizedPairingCode,
+            deviceName: "MagicHat iPhone",
+            deviceID: nil
+        )
+        let pairedClient = makeClient(baseURL, session.sessionToken)
+        let hostInfo = try await pairedClient.fetchHostInfo()
         let normalizedHost = HostBeacon(
-            hostID: host.hostID,
-            displayName: host.displayName,
+            hostID: hostInfo.hostID,
+            displayName: hostInfo.hostName,
             baseURL: host.baseURL,
-            apiVersion: host.apiVersion,
-            capabilities: host.capabilities,
+            apiVersion: hostInfo.apiVersion ?? host.apiVersion,
+            capabilities: ["instances", "prompt", "follow-up", "restore", "trust", "updates"],
             lastSeenAt: Date(),
-            connectionMode: .lanDirect
+            connectionMode: .lanDirect,
+            sessionToken: session.sessionToken,
+            accessTokenExpiresAt: session.expiresAt
         )
 
-        let candidateClient = makeClient(baseURL)
-        _ = try await candidateClient.fetchHealth()
-
         self.host = normalizedHost
-        self.client = candidateClient
+        self.client = pairedClient
         try await persistHost(normalizedHost)
         try await updateSnapshot(
             instanceID: sessionSnapshot?.activeInstanceID,
@@ -110,8 +124,8 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             lastSeenAt: Date(),
             connectionMode: .lanDirect
         )
-        try await pair(to: beacon)
-        return beacon
+        try await pair(to: beacon, pairingCode: parsed.pairingKey)
+        return try await currentHostRecord()
     }
 
     public func currentHost() async -> HostBeacon? {
@@ -134,12 +148,14 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
 
     public func listKnownRestoreRefs() async throws -> [KnownRestoreRef] {
         let currentHost = try await currentHostRecord()
-        guard currentHost.resolvedConnectionMode == .remoteRelay else {
-            return []
+        switch currentHost.resolvedConnectionMode {
+        case .remoteRelay:
+            let relayClient = try await activeRelayClient(for: currentHost)
+            return try await relayClient.listKnownRestoreRefs(hostID: currentHost.hostID)
+        case .lanDirect:
+            let client = try await activeClientWithReconnect()
+            return try await client.listKnownRestoreRefs()
         }
-
-        let relayClient = try await activeRelayClient(for: currentHost)
-        return try await relayClient.listKnownRestoreRefs(hostID: currentHost.hostID)
     }
 
     public func switchToInstance(id: String) async throws -> TeamAppInstance {
@@ -260,9 +276,13 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
                 restoreRef: refreshed.restoreRef ?? sessionSnapshot?.activeRestoreRef
             )
         case .lanDirect:
-            throw HostAPIError.http(
-                statusCode: 501,
-                message: "Trust approval is available only for relay-backed hosts in the current iOS client"
+            let client = try await activeClientWithReconnect()
+            try await client.answerTrustPrompt(approved, instanceID: instanceID)
+            let refreshed = try await client.fetchStatus(instanceID: instanceID)
+            try await updateSnapshot(
+                instanceID: instanceID,
+                sessionID: refreshed.activeSessionID ?? sessionSnapshot?.activeSessionID,
+                restoreRef: sessionSnapshot?.activeRestoreRef
             )
         }
     }
@@ -435,7 +455,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         sessionSnapshot = await persistence.loadSessionSnapshot()
 
         if let host, host.resolvedConnectionMode == .lanDirect, let baseURL = host.resolvedBaseURL {
-            client = makeClient(baseURL)
+            client = makeClient(baseURL, host.sessionToken)
         } else {
             client = nil
         }
@@ -557,7 +577,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         }
 
         if let baseURL = currentHost.resolvedBaseURL {
-            let candidateClient = makeClient(baseURL)
+            let candidateClient = makeClient(baseURL, currentHost.sessionToken)
             do {
                 _ = try await candidateClient.fetchHealth()
                 self.client = candidateClient
@@ -572,12 +592,27 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             throw HostAPIError.noPairedHost
         }
 
-        try await pair(to: recoveredHost)
-        guard let client = self.client else {
-            throw HostAPIError.noPairedHost
+        if let persistedToken = currentHost.sessionToken,
+           let baseURL = recoveredHost.resolvedBaseURL {
+            let recoveredClient = makeClient(baseURL, persistedToken)
+            _ = try await recoveredClient.fetchHealth()
+            let recoveredHostRecord = HostBeacon(
+                hostID: currentHost.hostID,
+                displayName: currentHost.displayName,
+                baseURL: recoveredHost.baseURL,
+                apiVersion: currentHost.apiVersion,
+                capabilities: currentHost.capabilities,
+                lastSeenAt: Date(),
+                connectionMode: .lanDirect,
+                sessionToken: persistedToken,
+                accessTokenExpiresAt: currentHost.accessTokenExpiresAt
+            )
+            self.client = recoveredClient
+            try await persistHost(recoveredHostRecord)
+            return recoveredClient
         }
 
-        return client
+        throw HostAPIError.missingPairingCode
     }
 
     private func persistHost(_ host: HostBeacon) async throws {

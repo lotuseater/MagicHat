@@ -336,7 +336,7 @@ final class RemoteRuntimeTests: XCTestCase {
             beaconDiscovery: EmptyBeaconDiscovery(),
             persistence: persistence,
             deviceKeyStore: DeviceKeyStore(service: "com.magichat.remote.tests.\(UUID().uuidString)"),
-            makeClient: { _ in
+            makeClient: { _, _ in
                 XCTFail("LAN client should not be used for remote pairing test")
                 return URLSessionHostAPIClient(baseURL: URL(string: "http://127.0.0.1:1")!)
             },
@@ -426,7 +426,7 @@ final class RemoteRuntimeTests: XCTestCase {
             beaconDiscovery: EmptyBeaconDiscovery(),
             persistence: persistence,
             deviceKeyStore: DeviceKeyStore(service: "com.magichat.remote.tests.\(UUID().uuidString)"),
-            makeClient: { _ in
+            makeClient: { _, _ in
                 XCTFail("LAN client should not be used for remote restore test")
                 return URLSessionHostAPIClient(baseURL: URL(string: "http://127.0.0.1:1")!)
             },
@@ -519,7 +519,7 @@ final class RemoteRuntimeTests: XCTestCase {
             beaconDiscovery: EmptyBeaconDiscovery(),
             persistence: persistence,
             deviceKeyStore: DeviceKeyStore(service: "com.magichat.remote.tests.\(UUID().uuidString)"),
-            makeClient: { _ in
+            makeClient: { _, _ in
                 XCTFail("LAN client should not be used for remote trust test")
                 return URLSessionHostAPIClient(baseURL: URL(string: "http://127.0.0.1:1")!)
             },
@@ -586,7 +586,7 @@ final class RemoteRuntimeTests: XCTestCase {
             beaconDiscovery: EmptyBeaconDiscovery(),
             persistence: persistence,
             deviceKeyStore: DeviceKeyStore(service: "com.magichat.remote.tests.\(UUID().uuidString)"),
-            makeClient: { _ in
+            makeClient: { _, _ in
                 XCTFail("LAN client should not be used for remote stream test")
                 return URLSessionHostAPIClient(baseURL: URL(string: "http://127.0.0.1:1")!)
             },

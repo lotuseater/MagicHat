@@ -6,11 +6,11 @@ public protocol BeaconDiscovering: Sendable {
 
 public struct HTTPBeaconDiscovery: BeaconDiscovering {
     private let candidateURLs: [URL]
-    private let makeClient: @Sendable (URL) -> HostAPIClient
+    private let makeClient: @Sendable (URL, String?) -> HostAPIClient
 
     public init(
         candidateURLs: [URL],
-        makeClient: @escaping @Sendable (URL) -> HostAPIClient
+        makeClient: @escaping @Sendable (URL, String?) -> HostAPIClient
     ) {
         self.candidateURLs = candidateURLs
         self.makeClient = makeClient
@@ -25,7 +25,7 @@ public struct HTTPBeaconDiscovery: BeaconDiscovering {
             for url in candidateURLs {
                 group.addTask {
                     do {
-                        return try await makeClient(url).fetchBeacon()
+                        return try await makeClient(url, nil).fetchBeacon()
                     } catch {
                         return nil
                     }
@@ -58,8 +58,8 @@ public struct HTTPBeaconDiscovery: BeaconDiscovering {
         ]
 
         let candidates = envCandidates.isEmpty ? defaults : envCandidates
-        return HTTPBeaconDiscovery(candidateURLs: candidates) { baseURL in
-            URLSessionHostAPIClient(baseURL: baseURL)
+        return HTTPBeaconDiscovery(candidateURLs: candidates) { baseURL, accessToken in
+            URLSessionHostAPIClient(baseURL: baseURL, accessToken: accessToken)
         }
     }
 }

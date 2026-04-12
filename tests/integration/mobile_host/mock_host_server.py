@@ -5,9 +5,11 @@ This server mirrors the current MagicHat v1 host surface:
 - POST /v1/pairing/session
 - GET /v1/host
 - GET/POST /v1/instances
+- GET /v1/restore-refs
 - GET/DELETE /v1/instances/{instance}
 - POST /v1/instances/{instance}/prompt
 - POST /v1/instances/{instance}/follow-up
+- POST /v1/instances/{instance}/trust
 - POST /v1/instances/{instance}/restore
 - GET /v1/instances/{instance}/poll
 - GET /v1/instances/{instance}/updates
@@ -172,6 +174,17 @@ def render_detail(instance: dict[str, Any]) -> dict[str, Any]:
     return public
 
 
+def render_known_restore_ref(instance: dict[str, Any]) -> dict[str, Any]:
+    restore_path = str(instance.get("restore_state_path") or "")
+    restore_ref = f"restore_{Path(restore_path).stem}" if restore_path else ""
+    return {
+        "restore_ref": restore_ref,
+        "session_id": instance.get("session_id"),
+        "title": instance.get("current_task_state", {}).get("task") or instance.get("summary_text"),
+        "observed_at": now_iso(),
+    }
+
+
 class MockHandler(BaseHTTPRequestHandler):
     server: "MockHostServer"
 
@@ -245,6 +258,18 @@ class MockHandler(BaseHTTPRequestHandler):
             self._json(200, {"instances": instances})
             return
 
+        if path == "/v1/restore-refs":
+            if not self._require_auth():
+                return
+            with self.server.state_lock:
+                restore_refs = [
+                    render_known_restore_ref(instance)
+                    for instance in self.server.state.instances.values()
+                    if instance.get("restore_state_path")
+                ]
+            self._json(200, {"restore_refs": restore_refs})
+            return
+
         if path.startswith("/v1/instances/"):
             if path.endswith("/updates"):
                 if not self._require_auth():
@@ -297,6 +322,13 @@ class MockHandler(BaseHTTPRequestHandler):
                 next_pid = max((item["pid"] for item in self.server.state.instances.values()), default=300) + 1
                 instance_id = f"wizard_team_app_{next_pid}_{next_pid * 10}"
                 restore_path = body.get("restore_state_path")
+                restore_ref = str(body.get("restore_ref", "")).strip()
+                if not restore_path and restore_ref:
+                    for current in self.server.state.instances.values():
+                        candidate = render_known_restore_ref(current)
+                        if candidate["restore_ref"] == restore_ref:
+                            restore_path = current.get("restore_state_path")
+                            break
                 session_id = f"session-{next_pid}"
                 summary = "Launch accepted"
                 task = body.get("title") or f"Team App {next_pid}"
@@ -351,6 +383,24 @@ class MockHandler(BaseHTTPRequestHandler):
             self._json(202, {"status": "queued"})
             return
 
+        if path.startswith("/v1/instances/") and path.endswith("/trust"):
+            if not self._require_auth():
+                return
+            selector = path.split("/")[-2]
+            instance = self._find_instance(selector)
+            if instance is None:
+                self._json(404, {"error": "instance_not_found"})
+                return
+            approved = bool(body.get("approved"))
+            with self.server.state_lock:
+                if approved:
+                    instance["summary_text"] = "Trust approved"
+                    instance["result_summary"]["short_text"] = instance["summary_text"]
+                instance["last_activity_ts"] = now_ms()
+            self.server.persist_state()
+            self._json(202, {"status": "queued"})
+            return
+
         if path.startswith("/v1/instances/") and path.endswith("/restore"):
             if not self._require_auth():
                 return
@@ -360,6 +410,14 @@ class MockHandler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "instance_not_found"})
                 return
             restore_path = str(body.get("restore_state_path", "")).strip()
+            restore_ref = str(body.get("restore_ref", "")).strip()
+            if not restore_path and restore_ref:
+                with self.server.state_lock:
+                    for current in self.server.state.instances.values():
+                        candidate = render_known_restore_ref(current)
+                        if candidate["restore_ref"] == restore_ref:
+                            restore_path = str(current.get("restore_state_path", "")).strip()
+                            break
             if not restore_path:
                 self._json(400, {"error": "bad_request"})
                 return

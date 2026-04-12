@@ -11,8 +11,8 @@ public struct AppEnvironment {
         let runtime = TeamAppRuntimeService(
             beaconDiscovery: HTTPBeaconDiscovery.default(),
             persistence: FileRuntimePersistence()
-        ) { baseURL in
-            URLSessionHostAPIClient(baseURL: baseURL)
+        ) { baseURL, accessToken in
+            URLSessionHostAPIClient(baseURL: baseURL, accessToken: accessToken)
         }
 
         return AppEnvironment(runtime: runtime)

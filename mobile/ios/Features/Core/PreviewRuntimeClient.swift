@@ -44,12 +44,14 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
         activeSessionID = instances.first?.activeSessionID
     }
 
-    public func pairToFirstAvailableHost() async throws -> HostBeacon {
+    public func pairToFirstAvailableHost(pairingCode: String?) async throws -> HostBeacon {
+        _ = pairingCode
         pairedHost = demoHost
         return demoHost
     }
 
-    public func pair(to host: HostBeacon) async throws {
+    public func pair(to host: HostBeacon, pairingCode: String?) async throws {
+        _ = pairingCode
         pairedHost = host
     }
 

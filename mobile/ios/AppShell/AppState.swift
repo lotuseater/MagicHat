@@ -37,7 +37,7 @@ public final class AppState: ObservableObject {
                 return
             }
 
-            let host = try await runtime.pairToFirstAvailableHost()
+            let host = try await runtime.pairToFirstAvailableHost(pairingCode: nil)
             activeHost = host
             connectionState = .connected(host: host.displayName)
         } catch {

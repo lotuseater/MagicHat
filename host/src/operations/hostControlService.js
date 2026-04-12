@@ -97,18 +97,23 @@ export class HostControlService {
 
   async launchInstance({ title, restoreStatePath, restoreRef, startupTimeoutMs, remoteSafe = false } = {}) {
     let resolvedRestorePath = restoreStatePath || null;
-    if (remoteSafe) {
-      resolvedRestorePath = restoreRef ? this.remoteAccessState?.resolveRestoreRef(restoreRef) : null;
-      if (restoreRef && !resolvedRestorePath) {
+    if (restoreRef) {
+      resolvedRestorePath = this.remoteAccessState?.resolveRestoreRef(restoreRef) || null;
+      if (!resolvedRestorePath) {
         const error = new Error("restore_ref_not_allowed");
         error.code = "restore_ref_not_allowed";
         throw error;
       }
-      if (restoreStatePath) {
-        const error = new Error("restore_ref_not_allowed");
-        error.code = "restore_ref_not_allowed";
-        throw error;
-      }
+    }
+    if (remoteSafe && restoreStatePath) {
+      const error = new Error("restore_ref_not_allowed");
+      error.code = "restore_ref_not_allowed";
+      throw error;
+    }
+    if (restoreStatePath && restoreRef) {
+      const error = new Error("restore_ref_not_allowed");
+      error.code = "restore_ref_not_allowed";
+      throw error;
     }
 
     const launched = await this.lifecycleManager.launchInstance({

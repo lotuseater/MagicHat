@@ -276,6 +276,13 @@ export function createMagicHatRuntime(options = {}) {
     }),
   );
 
+  app.get(
+    "/v1/restore-refs",
+    asyncRoute(async (_req, res) => {
+      res.json({ restore_refs: await hostControlService.listKnownRestoreRefs() });
+    }),
+  );
+
   app.post(
     "/v1/instances",
     asyncRoute(async (req, res) => {
@@ -283,6 +290,7 @@ export function createMagicHatRuntime(options = {}) {
       const launched = await hostControlService.launchInstance({
         title: `${req.body?.title || ""}`.trim() || undefined,
         restoreStatePath: `${req.body?.restore_state_path || ""}`.trim() || undefined,
+        restoreRef: `${req.body?.restore_ref || ""}`.trim() || undefined,
         startupTimeoutMs: Number.isFinite(startupTimeoutMs) ? startupTimeoutMs : undefined,
       });
       res.status(201).json(launched);
@@ -346,11 +354,16 @@ export function createMagicHatRuntime(options = {}) {
     "/v1/instances/:pid/restore",
     asyncRoute(async (req, res) => {
       const restoreStatePath = `${req.body?.restore_state_path || ""}`.trim();
-      if (!restoreStatePath) {
+      const restoreRef = `${req.body?.restore_ref || ""}`.trim();
+      if (!restoreStatePath && !restoreRef) {
         res.status(400).json({ error: "bad_request" });
         return;
       }
-      await hostControlService.restoreExistingInstance(req.params.pid, { restoreStatePath });
+      await hostControlService.restoreExistingInstance(req.params.pid, {
+        restoreStatePath: restoreStatePath || undefined,
+        restoreRef: restoreRef || undefined,
+        remoteSafe: !!restoreRef,
+      });
       res.status(202).json({ status: "queued" });
     }),
   );

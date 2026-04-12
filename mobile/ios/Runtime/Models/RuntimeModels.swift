@@ -64,10 +64,19 @@ public struct HostBeacon: Codable, Hashable, Sendable, Identifiable {
 }
 
 public struct HostHealth: Codable, Hashable, Sendable {
-    public let healthy: Bool
-    public let hostID: String
-    public let uptimeSeconds: Int
-    public let timestamp: Date
+    public let status: String
+    public let service: String?
+    public let timestampMs: Int64?
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case service
+        case timestampMs = "ts"
+    }
+
+    public var healthy: Bool {
+        status.lowercased() == "ok"
+    }
 }
 
 public enum TeamAppInstanceState: String, Codable, Hashable, Sendable {
@@ -248,6 +257,13 @@ public struct KnownRestoreRef: Codable, Hashable, Sendable, Identifiable {
         self.title = title
         self.sessionID = sessionID
         self.observedAt = observedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case restoreRef = "restore_ref"
+        case title
+        case sessionID = "session_id"
+        case observedAt = "observed_at"
     }
 }
 

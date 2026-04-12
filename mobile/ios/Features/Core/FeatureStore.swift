@@ -74,10 +74,10 @@ public final class FeatureStore: ObservableObject {
 
             let paired: HostBeacon
             if let selected = discoveredHosts.first(where: { $0.hostID == hostID }) {
-                try await runtime.pair(to: selected)
+                try await runtime.pair(to: selected, pairingCode: pin)
                 paired = selected
             } else {
-                paired = try await runtime.pairToFirstAvailableHost()
+                paired = try await runtime.pairToFirstAvailableHost(pairingCode: pin)
             }
 
             pairedHost = paired

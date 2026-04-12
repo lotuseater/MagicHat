@@ -14,6 +14,7 @@ public enum HostAPIError: Error, LocalizedError {
     case encoding(Error)
     case pairingTimedOut
     case pairingRejected
+    case missingPairingCode
 
     public var errorDescription: String? {
         switch self {
@@ -43,13 +44,47 @@ public enum HostAPIError: Error, LocalizedError {
             return "Timed out waiting for host approval"
         case .pairingRejected:
             return "Pairing was rejected on the host"
+        case .missingPairingCode:
+            return "A pairing code is required to authorize a LAN host"
         }
+    }
+}
+
+public struct HostPairingSession: Codable, Hashable, Sendable {
+    public let sessionToken: String
+    public let expiresAt: Date
+    public let hostID: String
+    public let hostName: String
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionToken = "session_token"
+        case expiresAt = "expires_at"
+        case hostID = "host_id"
+        case hostName = "host_name"
+    }
+}
+
+public struct HostIdentity: Codable, Hashable, Sendable {
+    public let hostID: String
+    public let hostName: String
+    public let lanAddress: String?
+    public let apiVersion: String?
+    public let scope: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case hostID = "host_id"
+        case hostName = "host_name"
+        case lanAddress = "lan_address"
+        case apiVersion = "api_version"
+        case scope
     }
 }
 
 public protocol HostAPIClient: Sendable {
     func fetchBeacon() async throws -> HostBeacon
     func fetchHealth() async throws -> HostHealth
+    func beginPairing(pairingCode: String, deviceName: String, deviceID: String?) async throws -> HostPairingSession
+    func fetchHostInfo() async throws -> HostIdentity
 
     func listInstances() async throws -> [TeamAppInstance]
     func switchInstance(id: String) async throws -> TeamAppInstance
@@ -59,64 +94,176 @@ public protocol HostAPIClient: Sendable {
     func fetchStatus(instanceID: String) async throws -> TeamAppStatus
     func sendPrompt(_ submission: PromptSubmission, instanceID: String) async throws -> PromptAck
     func sendFollowUp(_ submission: FollowUpSubmission, instanceID: String) async throws -> PromptAck
+    func answerTrustPrompt(_ approved: Bool, instanceID: String) async throws
+    func listKnownRestoreRefs() async throws -> [KnownRestoreRef]
 
     func restoreSession(id: String) async throws -> SessionRestoreResult
 }
 
 public struct URLSessionHostAPIClient: HostAPIClient {
     private enum Route {
-        static let beacon = "/api/v1/beacon"
-        static let health = "/api/v1/health"
-        static let instances = "/api/v1/instances"
+        static let health = "/healthz"
+        static let pairingSession = "/v1/pairing/session"
+        static let host = "/v1/host"
+        static let instances = "/v1/instances"
+        static let restoreRefs = "/v1/restore-refs"
 
         static func instance(_ id: String) -> String {
-            "/api/v1/instances/\(id)"
-        }
-
-        static func switchInstance(_ id: String) -> String {
-            "/api/v1/instances/\(id)/switch"
-        }
-
-        static func status(_ id: String) -> String {
-            "/api/v1/instances/\(id)/status"
+            "/v1/instances/\(id)"
         }
 
         static func prompt(_ id: String) -> String {
-            "/api/v1/instances/\(id)/prompt"
+            "/v1/instances/\(id)/prompt"
         }
 
         static func followUp(_ id: String) -> String {
-            "/api/v1/instances/\(id)/follow-up"
+            "/v1/instances/\(id)/follow-up"
         }
 
-        static func restoreSession(_ sessionID: String) -> String {
-            "/api/v1/sessions/\(sessionID)/restore"
+        static func trust(_ id: String) -> String {
+            "/v1/instances/\(id)/trust"
+        }
+    }
+
+    private struct PairingRequest: Encodable {
+        let pairingCode: String
+        let deviceName: String
+        let deviceID: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case pairingCode = "pairing_code"
+            case deviceName = "device_name"
+            case deviceID = "device_id"
         }
     }
 
     private struct InstancesResponse: Decodable {
-        let instances: [TeamAppInstance]
+        let instances: [HostInstanceWire]
     }
 
-    private struct InstanceResponse: Decodable {
-        let instance: TeamAppInstance
+    private struct RestoreRefsResponse: Decodable {
+        let restoreRefs: [KnownRestoreRef]
+
+        private enum CodingKeys: String, CodingKey {
+            case restoreRefs = "restore_refs"
+        }
     }
 
-    private struct StatusResponse: Decodable {
-        let status: TeamAppStatus
+    private struct LaunchRequestBody: Encodable {
+        let title: String?
+        let restoreRef: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case title
+            case restoreRef = "restore_ref"
+        }
     }
 
-    private struct AckResponse: Decodable {
-        let ack: PromptAck
+    private struct TrustRequest: Encodable {
+        let approved: Bool
+    }
+
+    private struct HostResultSummary: Decodable, Sendable {
+        let shortText: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case shortText = "short_text"
+        }
+    }
+
+    private struct HostTaskState: Decodable, Sendable {
+        let phase: String?
+        let task: String?
+    }
+
+    private struct HostSnapshot: Decodable, Sendable {
+        let phase: String?
+        let resultSummary: HostResultSummary?
+        let trustStatus: String?
+        let pendingTrustProject: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case phase
+            case resultSummary = "result_summary"
+            case trustStatus = "trust_status"
+            case pendingTrustProject = "pending_trust_project"
+        }
+    }
+
+    private struct HostInstanceWire: Decodable, Sendable {
+        let id: String?
+        let instanceID: String?
+        let pid: Int?
+        let phase: String?
+        let sessionID: String?
+        let startedAt: Int64?
+        let currentTaskState: HostTaskState?
+        let resultSummary: HostResultSummary?
+        let summaryText: String?
+        let status: String?
+        let snapshot: HostSnapshot?
+        let restoreRef: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case instanceID = "instance_id"
+            case pid
+            case phase
+            case sessionID = "session_id"
+            case startedAt = "started_at"
+            case currentTaskState = "current_task_state"
+            case resultSummary = "result_summary"
+            case summaryText = "summary_text"
+            case status
+            case snapshot
+            case restoreRef = "restore_ref"
+        }
+
+        var stableInstanceID: String {
+            instanceID ?? id ?? pid.map(String.init) ?? sessionID ?? "unknown-instance"
+        }
+
+        func asTeamAppInstance(now: Date = Date()) -> TeamAppInstance {
+            let createdAt = startedAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) } ?? now
+            let preview = summaryText ?? snapshot?.resultSummary?.shortText ?? resultSummary?.shortText
+            let title = currentTaskState?.task ?? preview ?? stableInstanceID
+            let state = TeamAppInstanceState.fromRemoteValue(snapshot?.phase ?? currentTaskState?.phase ?? phase)
+            return TeamAppInstance(
+                id: stableInstanceID,
+                title: title,
+                state: state,
+                createdAt: createdAt,
+                updatedAt: now,
+                activeSessionID: sessionID,
+                lastResultPreview: preview,
+                restoreRef: restoreRef
+            )
+        }
+
+        func asStatus(now: Date = Date()) -> TeamAppStatus {
+            TeamAppStatus(
+                instanceID: stableInstanceID,
+                state: TeamAppInstanceState.fromRemoteValue(snapshot?.phase ?? currentTaskState?.phase ?? phase),
+                progressPercent: nil,
+                healthMessage: status ?? snapshot?.phase ?? currentTaskState?.phase ?? phase,
+                latestResult: summaryText ?? snapshot?.resultSummary?.shortText ?? resultSummary?.shortText,
+                activeSessionID: sessionID,
+                trustStatus: snapshot?.trustStatus,
+                pendingTrustProject: snapshot?.pendingTrustProject,
+                updatedAt: now
+            )
+        }
     }
 
     private let baseURL: URL
+    private let accessToken: String?
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    public init(baseURL: URL, session: URLSession = .shared) {
+    public init(baseURL: URL, accessToken: String? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
+        self.accessToken = accessToken
         self.session = session
 
         let decoder = JSONDecoder()
@@ -129,38 +276,72 @@ public struct URLSessionHostAPIClient: HostAPIClient {
     }
 
     public func fetchBeacon() async throws -> HostBeacon {
-        try await request(path: Route.beacon, method: "GET", body: Optional<String>.none, decodeAs: HostBeacon.self)
+        _ = try await fetchHealth()
+        return HostBeacon(
+            hostID: synthesizedHostID(),
+            displayName: synthesizedHostName(),
+            baseURL: baseURL.absoluteString,
+            apiVersion: "v1",
+            capabilities: ["instances", "prompt", "follow-up", "restore", "trust", "updates"],
+            lastSeenAt: Date(),
+            connectionMode: .lanDirect,
+            sessionToken: accessToken
+        )
     }
 
     public func fetchHealth() async throws -> HostHealth {
         try await request(path: Route.health, method: "GET", body: Optional<String>.none, decodeAs: HostHealth.self)
     }
 
+    public func beginPairing(pairingCode: String, deviceName: String, deviceID: String?) async throws -> HostPairingSession {
+        try await request(
+            path: Route.pairingSession,
+            method: "POST",
+            body: PairingRequest(
+                pairingCode: pairingCode,
+                deviceName: deviceName,
+                deviceID: deviceID
+            ),
+            decodeAs: HostPairingSession.self
+        )
+    }
+
+    public func fetchHostInfo() async throws -> HostIdentity {
+        try await request(path: Route.host, method: "GET", body: Optional<String>.none, decodeAs: HostIdentity.self)
+    }
+
     public func listInstances() async throws -> [TeamAppInstance] {
-        do {
-            let wrapped: InstancesResponse = try await request(path: Route.instances, method: "GET", body: Optional<String>.none, decodeAs: InstancesResponse.self)
-            return wrapped.instances
-        } catch {
-            return try await request(path: Route.instances, method: "GET", body: Optional<String>.none, decodeAs: [TeamAppInstance].self)
-        }
+        let wrapped: InstancesResponse = try await request(
+            path: Route.instances,
+            method: "GET",
+            body: Optional<String>.none,
+            decodeAs: InstancesResponse.self
+        )
+        return wrapped.instances.map { $0.asTeamAppInstance() }
     }
 
     public func switchInstance(id: String) async throws -> TeamAppInstance {
-        do {
-            let wrapped: InstanceResponse = try await request(path: Route.switchInstance(id), method: "POST", body: Optional<String>.none, decodeAs: InstanceResponse.self)
-            return wrapped.instance
-        } catch {
-            return try await request(path: Route.switchInstance(id), method: "POST", body: Optional<String>.none, decodeAs: TeamAppInstance.self)
-        }
+        let detail: HostInstanceWire = try await request(
+            path: Route.instance(id),
+            method: "GET",
+            body: Optional<String>.none,
+            decodeAs: HostInstanceWire.self
+        )
+        return detail.asTeamAppInstance()
     }
 
     public func launchInstance(request launchRequest: LaunchInstanceRequest) async throws -> TeamAppInstance {
-        do {
-            let wrapped: InstanceResponse = try await request(path: Route.instances, method: "POST", body: launchRequest, decodeAs: InstanceResponse.self)
-            return wrapped.instance
-        } catch {
-            return try await request(path: Route.instances, method: "POST", body: launchRequest, decodeAs: TeamAppInstance.self)
-        }
+        let requestBody = LaunchRequestBody(
+            title: launchRequest.title ?? launchRequest.initialPrompt,
+            restoreRef: launchRequest.restoreRef
+        )
+        let created: HostInstanceWire = try await request(
+            path: Route.instances,
+            method: "POST",
+            body: requestBody,
+            decodeAs: HostInstanceWire.self
+        )
+        return created.asTeamAppInstance()
     }
 
     public func closeInstance(id: String) async throws {
@@ -168,34 +349,53 @@ public struct URLSessionHostAPIClient: HostAPIClient {
     }
 
     public func fetchStatus(instanceID: String) async throws -> TeamAppStatus {
-        do {
-            let wrapped: StatusResponse = try await request(path: Route.status(instanceID), method: "GET", body: Optional<String>.none, decodeAs: StatusResponse.self)
-            return wrapped.status
-        } catch {
-            return try await request(path: Route.status(instanceID), method: "GET", body: Optional<String>.none, decodeAs: TeamAppStatus.self)
-        }
+        let detail: HostInstanceWire = try await request(
+            path: Route.instance(instanceID),
+            method: "GET",
+            body: Optional<String>.none,
+            decodeAs: HostInstanceWire.self
+        )
+        return detail.asStatus()
     }
 
     public func sendPrompt(_ submission: PromptSubmission, instanceID: String) async throws -> PromptAck {
-        do {
-            let wrapped: AckResponse = try await request(path: Route.prompt(instanceID), method: "POST", body: submission, decodeAs: AckResponse.self)
-            return wrapped.ack
-        } catch {
-            return try await request(path: Route.prompt(instanceID), method: "POST", body: submission, decodeAs: PromptAck.self)
-        }
+        _ = try await request(path: Route.prompt(instanceID), method: "POST", body: ["prompt": submission.text], decodeAs: EmptyResponse.self)
+        return PromptAck(requestID: "lan-\(UUID().uuidString)", acceptedAt: Date())
     }
 
     public func sendFollowUp(_ submission: FollowUpSubmission, instanceID: String) async throws -> PromptAck {
-        do {
-            let wrapped: AckResponse = try await request(path: Route.followUp(instanceID), method: "POST", body: submission, decodeAs: AckResponse.self)
-            return wrapped.ack
-        } catch {
-            return try await request(path: Route.followUp(instanceID), method: "POST", body: submission, decodeAs: PromptAck.self)
-        }
+        _ = try await request(path: Route.followUp(instanceID), method: "POST", body: ["message": submission.text], decodeAs: EmptyResponse.self)
+        return PromptAck(requestID: "lan-\(UUID().uuidString)", acceptedAt: Date())
+    }
+
+    public func answerTrustPrompt(_ approved: Bool, instanceID: String) async throws {
+        _ = try await request(
+            path: Route.trust(instanceID),
+            method: "POST",
+            body: TrustRequest(approved: approved),
+            decodeAs: EmptyResponse.self
+        )
+    }
+
+    public func listKnownRestoreRefs() async throws -> [KnownRestoreRef] {
+        let response: RestoreRefsResponse = try await request(
+            path: Route.restoreRefs,
+            method: "GET",
+            body: Optional<String>.none,
+            decodeAs: RestoreRefsResponse.self
+        )
+        return response.restoreRefs
     }
 
     public func restoreSession(id: String) async throws -> SessionRestoreResult {
-        try await request(path: Route.restoreSession(id), method: "POST", body: Optional<String>.none, decodeAs: SessionRestoreResult.self)
+        let knownRestoreRefs = try await listKnownRestoreRefs()
+        let resolvedRestoreRef =
+            knownRestoreRefs.first(where: { $0.restoreRef == id || $0.sessionID == id })?.restoreRef ?? id
+        let instance = try await launchInstance(
+            request: LaunchInstanceRequest(initialPrompt: nil, restoreRef: resolvedRestoreRef)
+        )
+        let status = try await fetchStatus(instanceID: instance.id)
+        return SessionRestoreResult(sessionID: id, instance: instance, status: status)
     }
 
     private func request<Body: Encodable, Output: Decodable>(
@@ -243,6 +443,10 @@ public struct URLSessionHostAPIClient: HostAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
+        if let accessToken, accessToken.isEmpty == false {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+
         if let body {
             do {
                 request.httpBody = try encoder.encode(body)
@@ -252,6 +456,20 @@ public struct URLSessionHostAPIClient: HostAPIClient {
         }
 
         return request
+    }
+
+    private func synthesizedHostID() -> String {
+        if let host = baseURL.host {
+            if let port = baseURL.port {
+                return "\(host):\(port)"
+            }
+            return host
+        }
+        return baseURL.absoluteString
+    }
+
+    private func synthesizedHostName() -> String {
+        baseURL.host ?? baseURL.absoluteString
     }
 }
 

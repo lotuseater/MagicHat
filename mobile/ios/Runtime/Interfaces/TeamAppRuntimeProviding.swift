@@ -1,8 +1,8 @@
 import Foundation
 
 public protocol TeamAppRuntimeProviding: AnyObject {
-    func pairToFirstAvailableHost() async throws -> HostBeacon
-    func pair(to host: HostBeacon) async throws
+    func pairToFirstAvailableHost(pairingCode: String?) async throws -> HostBeacon
+    func pair(to host: HostBeacon, pairingCode: String?) async throws
     func registerPairingURI(_ rawURI: String, deviceName: String) async throws -> HostBeacon
     func currentHost() async -> HostBeacon?
 
