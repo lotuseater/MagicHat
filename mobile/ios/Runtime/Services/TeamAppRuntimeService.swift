@@ -6,6 +6,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
     private let makeClient: @Sendable (URL) -> HostAPIClient
     private let makeRelayClient: @Sendable (URL, String?, String?) throws -> RelayAPIClient
     private let deviceKeyStore: DeviceKeyStore
+    private let eventStreamClient: any InstanceEventStreaming
 
     private var bootstrapped = false
     private var host: HostBeacon?
@@ -28,7 +29,8 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
                     accessToken: accessToken,
                     certificatePinsetVersion: certificatePinsetVersion
                 )
-            }
+            },
+            eventStreamClient: URLSessionInstanceEventStreamClient()
         )
     }
 
@@ -37,13 +39,15 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         persistence: RuntimePersistence,
         deviceKeyStore: DeviceKeyStore,
         makeClient: @escaping @Sendable (URL) -> HostAPIClient,
-        makeRelayClient: @escaping @Sendable (URL, String?, String?) throws -> RelayAPIClient
+        makeRelayClient: @escaping @Sendable (URL, String?, String?) throws -> RelayAPIClient,
+        eventStreamClient: any InstanceEventStreaming
     ) {
         self.beaconDiscovery = beaconDiscovery
         self.persistence = persistence
         self.deviceKeyStore = deviceKeyStore
         self.makeClient = makeClient
         self.makeRelayClient = makeRelayClient
+        self.eventStreamClient = eventStreamClient
     }
 
     public func pairToFirstAvailableHost() async throws -> HostBeacon {
@@ -261,6 +265,55 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
                 message: "Trust approval is available only for relay-backed hosts in the current iOS client"
             )
         }
+    }
+
+    public func observeInstanceEvents(
+        for instanceID: String,
+        onEvent: @escaping @Sendable (TeamAppInstanceEvent) -> Void,
+        onState: @escaping @Sendable (String) -> Void
+    ) async {
+        do {
+            _ = try await currentHostRecord()
+            await eventStreamClient.start(
+                requestProvider: { [self] in
+                    let currentHost = try await currentHostRecord()
+                    switch currentHost.resolvedConnectionMode {
+                    case .remoteRelay:
+                        guard let baseURL = currentHost.resolvedBaseURL else {
+                            throw HostAPIError.invalidBaseURL(currentHost.baseURL)
+                        }
+                        return InstanceEventStreamRequest(
+                            baseURL: baseURL,
+                            streamPath: "/v2/mobile/hosts/\(currentHost.hostID)/instances/\(instanceID)/updates",
+                            accessToken: currentHost.sessionToken
+                        )
+                    case .lanDirect:
+                        guard let baseURL = currentHost.resolvedBaseURL,
+                              let sessionToken = currentHost.sessionToken,
+                              sessionToken.isEmpty == false
+                        else {
+                            throw HostAPIError.http(
+                                statusCode: 501,
+                                message: "Live updates are available only for relay-backed hosts in the current iOS client"
+                            )
+                        }
+                        return InstanceEventStreamRequest(
+                            baseURL: baseURL,
+                            streamPath: "/v1/instances/\(instanceID)/updates",
+                            accessToken: sessionToken
+                        )
+                    }
+                },
+                onEvent: onEvent,
+                onState: onState
+            )
+        } catch {
+            onState("disconnected:\(error.localizedDescription)")
+        }
+    }
+
+    public func stopObservingInstanceEvents() async {
+        await eventStreamClient.stop()
     }
 
     public func restoreSession(_ sessionID: String) async throws -> SessionRestoreResult {

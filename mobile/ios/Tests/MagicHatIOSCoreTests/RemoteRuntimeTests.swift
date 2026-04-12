@@ -236,10 +236,58 @@ private actor TestRelayClient: RelayAPIClient {
     }
 }
 
+private actor TestEventStreamClient: InstanceEventStreaming {
+    struct StartCall: Equatable {
+        let baseURL: String
+        let streamPath: String
+        let accessToken: String?
+    }
+
+    private var startCalls: [StartCall] = []
+    private var stopCount = 0
+    private var onEvent: (@Sendable (TeamAppInstanceEvent) -> Void)?
+    private var onState: (@Sendable (String) -> Void)?
+
+    func start(
+        requestProvider: @escaping RequestProvider,
+        onEvent: @escaping @Sendable (TeamAppInstanceEvent) -> Void,
+        onState: @escaping @Sendable (String) -> Void
+    ) async {
+        let request = try! await requestProvider()
+        startCalls.append(
+            StartCall(
+                baseURL: request.baseURL.absoluteString,
+                streamPath: request.streamPath,
+                accessToken: request.accessToken
+            )
+        )
+        self.onEvent = onEvent
+        self.onState = onState
+        onState("connected")
+    }
+
+    func stop() async {
+        stopCount += 1
+    }
+
+    func emit(_ event: TeamAppInstanceEvent) {
+        onEvent?(event)
+    }
+
+    func recordedStartCalls() -> [StartCall] {
+        startCalls
+    }
+
+    func recordedStopCount() -> Int {
+        stopCount
+    }
+}
+
 final class RemoteRuntimeTests: XCTestCase {
     func testRemotePairingPersistsRelayBackedHostAndListsRestoreRefs() async throws {
         let persistence = MemoryRuntimePersistence()
         let relay = TestRelayClient()
+        let eventStreamClient = TestEventStreamClient()
 
         await relay.setClaimStatusResponses([
             RemoteClaimStatus(
@@ -294,7 +342,8 @@ final class RemoteRuntimeTests: XCTestCase {
             },
             makeRelayClient: { _, _, _ in
                 relay
-            }
+            },
+            eventStreamClient: eventStreamClient
         )
 
         let paired = try await service.registerPairingURI(
@@ -325,6 +374,7 @@ final class RemoteRuntimeTests: XCTestCase {
     func testRemoteRestoreRefreshesExpiredTokenAndUsesRestoreRef() async throws {
         let persistence = MemoryRuntimePersistence()
         let relay = TestRelayClient()
+        let eventStreamClient = TestEventStreamClient()
         let now = Date()
 
         let expiredHost = HostBeacon(
@@ -382,7 +432,8 @@ final class RemoteRuntimeTests: XCTestCase {
             },
             makeRelayClient: { _, _, _ in
                 relay
-            }
+            },
+            eventStreamClient: eventStreamClient
         )
 
         let restored = try await service.restoreSession("restore_remote_alpha")
@@ -411,6 +462,7 @@ final class RemoteRuntimeTests: XCTestCase {
     func testRemoteTrustPromptApprovalUpdatesStatus() async throws {
         let persistence = MemoryRuntimePersistence()
         let relay = TestRelayClient()
+        let eventStreamClient = TestEventStreamClient()
         let now = Date()
 
         let pairedHost = HostBeacon(
@@ -473,7 +525,8 @@ final class RemoteRuntimeTests: XCTestCase {
             },
             makeRelayClient: { _, _, _ in
                 relay
-            }
+            },
+            eventStreamClient: eventStreamClient
         )
 
         let before = try await service.fetchStatus(for: "instance_remote_blocked")
@@ -494,5 +547,98 @@ final class RemoteRuntimeTests: XCTestCase {
                 approved: true
             )
         ])
+    }
+
+    func testRemoteInstanceEventObservationUsesRelayStreamPath() async throws {
+        let persistence = MemoryRuntimePersistence()
+        let relay = TestRelayClient()
+        let eventStreamClient = TestEventStreamClient()
+        let now = Date()
+
+        let pairedHost = HostBeacon(
+            hostID: "host_remote_1",
+            displayName: "Office Relay Host",
+            baseURL: "http://127.0.0.1:18795/",
+            apiVersion: "v2",
+            capabilities: ["instances", "updates"],
+            lastSeenAt: now,
+            connectionMode: .remoteRelay,
+            sessionToken: "access_current",
+            refreshToken: "refresh_current",
+            accessTokenExpiresAt: now.addingTimeInterval(600),
+            refreshTokenExpiresAt: now.addingTimeInterval(3600),
+            deviceID: "device_remote_1",
+            certificatePinsetVersion: "dev-insecure",
+            lastKnownHostPresence: "online"
+        )
+        try await persistence.savePairedHost(pairedHost)
+        try await persistence.saveSessionSnapshot(
+            SessionSnapshot(
+                host: pairedHost,
+                activeInstanceID: "instance_remote_alpha",
+                activeSessionID: "session_remote_alpha",
+                activeRestoreRef: "restore_remote_alpha",
+                updatedAt: now
+            )
+        )
+
+        let service = TeamAppRuntimeService(
+            beaconDiscovery: EmptyBeaconDiscovery(),
+            persistence: persistence,
+            deviceKeyStore: DeviceKeyStore(service: "com.magichat.remote.tests.\(UUID().uuidString)"),
+            makeClient: { _ in
+                XCTFail("LAN client should not be used for remote stream test")
+                return URLSessionHostAPIClient(baseURL: URL(string: "http://127.0.0.1:1")!)
+            },
+            makeRelayClient: { _, _, _ in
+                relay
+            },
+            eventStreamClient: eventStreamClient
+        )
+
+        let stateExpectation = expectation(description: "stream connected")
+        let eventExpectation = expectation(description: "event delivered")
+
+        await service.observeInstanceEvents(
+            for: "instance_remote_alpha",
+            onEvent: { event in
+                XCTAssertEqual(event.type, "message")
+                XCTAssertEqual(event.instanceID, "instance_remote_alpha")
+                XCTAssertEqual(event.message, "worker finished")
+                eventExpectation.fulfill()
+            },
+            onState: { state in
+                if state == "connected" {
+                    stateExpectation.fulfill()
+                }
+            }
+        )
+
+        await eventStreamClient.emit(
+            TeamAppInstanceEvent(
+                streamID: "evt-1",
+                type: "message",
+                instanceID: "instance_remote_alpha",
+                message: "worker finished",
+                outputChunk: nil,
+                health: "running",
+                updatedAt: "2026-04-12T18:00:00Z"
+            )
+        )
+
+        await fulfillment(of: [stateExpectation, eventExpectation], timeout: 2.0)
+
+        let startCalls = await eventStreamClient.recordedStartCalls()
+        XCTAssertEqual(startCalls, [
+            TestEventStreamClient.StartCall(
+                baseURL: "http://127.0.0.1:18795/",
+                streamPath: "/v2/mobile/hosts/host_remote_1/instances/instance_remote_alpha/updates",
+                accessToken: "access_current"
+            )
+        ])
+
+        await service.stopObservingInstanceEvents()
+        let stopCount = await eventStreamClient.recordedStopCount()
+        XCTAssertEqual(stopCount, 1)
     }
 }

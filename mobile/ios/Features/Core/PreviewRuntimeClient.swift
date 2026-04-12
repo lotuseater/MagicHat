@@ -14,6 +14,7 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
     private var pairedHost: HostBeacon?
     private var activeInstanceID: String?
     private var activeSessionID: String?
+    private var streamTask: Task<Void, Never>?
 
     private var instances: [TeamAppInstance] = [
         TeamAppInstance(
@@ -186,6 +187,33 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
                 restoreRef: current.restoreRef
             )
         }
+    }
+
+    public func observeInstanceEvents(
+        for instanceID: String,
+        onEvent: @escaping @Sendable (TeamAppInstanceEvent) -> Void,
+        onState: @escaping @Sendable (String) -> Void
+    ) async {
+        streamTask?.cancel()
+        onState("connected")
+        streamTask = Task {
+            onEvent(
+                TeamAppInstanceEvent(
+                    streamID: UUID().uuidString,
+                    type: "message",
+                    instanceID: instanceID,
+                    message: "Preview stream connected",
+                    outputChunk: nil,
+                    health: "running",
+                    updatedAt: ISO8601DateFormatter().string(from: Date())
+                )
+            )
+        }
+    }
+
+    public func stopObservingInstanceEvents() async {
+        streamTask?.cancel()
+        streamTask = nil
     }
 
     public func restoreSession(_ sessionID: String) async throws -> SessionRestoreResult {

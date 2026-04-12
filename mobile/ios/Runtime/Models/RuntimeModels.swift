@@ -161,6 +161,40 @@ public struct TeamAppStatus: Codable, Hashable, Sendable {
     }
 }
 
+public struct TeamAppInstanceEvent: Codable, Hashable, Sendable, Identifiable {
+    public var id: String {
+        streamID ?? [instanceID, type, updatedAt, message, outputChunk]
+            .compactMap { $0 }
+            .joined(separator: "|")
+    }
+
+    public let streamID: String?
+    public let type: String
+    public let instanceID: String?
+    public let message: String?
+    public let outputChunk: String?
+    public let health: String?
+    public let updatedAt: String?
+
+    public init(
+        streamID: String? = nil,
+        type: String,
+        instanceID: String?,
+        message: String?,
+        outputChunk: String?,
+        health: String?,
+        updatedAt: String?
+    ) {
+        self.streamID = streamID
+        self.type = type
+        self.instanceID = instanceID
+        self.message = message
+        self.outputChunk = outputChunk
+        self.health = health
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct LaunchInstanceRequest: Codable, Hashable, Sendable {
     public let initialPrompt: String?
     public let title: String?

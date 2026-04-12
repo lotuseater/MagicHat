@@ -19,6 +19,8 @@ public final class FeatureStore: ObservableObject {
     @Published public private(set) var activeInstanceID: String?
     @Published public private(set) var statusSnapshot: TeamAppStatus?
     @Published public private(set) var activeHostPresence: String?
+    @Published public private(set) var streamEvents: [TeamAppInstanceEvent] = []
+    @Published public private(set) var streamStatus: String = "idle"
 
     @Published public private(set) var latestPromptReceipt: PromptAck?
     @Published public private(set) var latestFollowUpReceipt: PromptAck?
@@ -36,6 +38,10 @@ public final class FeatureStore: ObservableObject {
 
     deinit {
         pollingTask?.cancel()
+        let runtime = runtime
+        Task {
+            await runtime.stopObservingInstanceEvents()
+        }
     }
 
     public func discoverHosts() async {
@@ -110,9 +116,13 @@ public final class FeatureStore: ObservableObject {
             }
 
             if activeInstanceID != nil {
+                await restartInstanceStream()
                 await refreshStatus()
             } else {
                 statusSnapshot = nil
+                streamEvents = []
+                streamStatus = "idle"
+                await runtime.stopObservingInstanceEvents()
             }
         }
     }
@@ -122,6 +132,7 @@ public final class FeatureStore: ObservableObject {
             let switched = try await runtime.switchToInstance(id: instanceID)
             activeInstanceID = switched.id
             replaceOrAppend(switched)
+            await restartInstanceStream()
             await refreshStatus()
         }
     }
@@ -132,6 +143,7 @@ public final class FeatureStore: ObservableObject {
             activeInstanceID = created.id
             replaceOrAppend(created)
             instances = try await runtime.listInstances()
+            await restartInstanceStream()
             await refreshStatus()
         }
     }
@@ -146,9 +158,13 @@ public final class FeatureStore: ObservableObject {
             }
 
             if activeInstanceID != nil {
+                await restartInstanceStream()
                 await refreshStatus()
             } else {
                 statusSnapshot = nil
+                streamEvents = []
+                streamStatus = "idle"
+                await runtime.stopObservingInstanceEvents()
             }
         }
     }
@@ -220,6 +236,7 @@ public final class FeatureStore: ObservableObject {
             replaceOrAppend(restored.instance)
             instances = try await runtime.listInstances()
             knownRestoreRefs = try await runtime.listKnownRestoreRefs()
+            await restartInstanceStream()
             await refreshStatus()
         }
     }
@@ -245,6 +262,78 @@ public final class FeatureStore: ObservableObject {
             instances[index] = instance
         } else {
             instances.append(instance)
+        }
+    }
+
+    private func restartInstanceStream() async {
+        guard let instanceID = activeInstanceID else {
+            streamEvents = []
+            streamStatus = "idle"
+            await runtime.stopObservingInstanceEvents()
+            return
+        }
+
+        streamEvents = []
+        streamStatus = "connecting"
+        await runtime.observeInstanceEvents(
+            for: instanceID,
+            onEvent: { [weak self] event in
+                Task { @MainActor [weak self] in
+                    self?.applyStreamEvent(event)
+                }
+            },
+            onState: { [weak self] state in
+                Task { @MainActor [weak self] in
+                    self?.streamStatus = state
+                }
+            }
+        )
+    }
+
+    private func applyStreamEvent(_ event: TeamAppInstanceEvent) {
+        if event.type.lowercased() != "heartbeat" {
+            streamEvents = Array((streamEvents + [event]).suffix(150))
+        }
+
+        guard let activeInstanceID,
+              event.instanceID == nil || event.instanceID == activeInstanceID
+        else {
+            return
+        }
+
+        let activeSessionID =
+            statusSnapshot?.activeSessionID ??
+            instances.first(where: { $0.id == activeInstanceID })?.activeSessionID
+        let nextState = TeamAppInstanceState.fromRemoteValue(event.health) != .unknown
+            ? TeamAppInstanceState.fromRemoteValue(event.health)
+            : (statusSnapshot?.state ?? instances.first(where: { $0.id == activeInstanceID })?.state ?? .unknown)
+        let nextHealthMessage = event.message ?? event.health ?? statusSnapshot?.healthMessage
+        let nextLatestResult = event.outputChunk ?? event.message ?? statusSnapshot?.latestResult
+
+        statusSnapshot = TeamAppStatus(
+            instanceID: activeInstanceID,
+            state: nextState,
+            progressPercent: statusSnapshot?.progressPercent,
+            healthMessage: nextHealthMessage,
+            latestResult: nextLatestResult,
+            activeSessionID: activeSessionID,
+            trustStatus: statusSnapshot?.trustStatus,
+            pendingTrustProject: statusSnapshot?.pendingTrustProject,
+            updatedAt: Date()
+        )
+
+        if let index = instances.firstIndex(where: { $0.id == activeInstanceID }) {
+            let current = instances[index]
+            instances[index] = TeamAppInstance(
+                id: current.id,
+                title: current.title,
+                state: nextState,
+                createdAt: current.createdAt,
+                updatedAt: Date(),
+                activeSessionID: activeSessionID ?? current.activeSessionID,
+                lastResultPreview: nextLatestResult ?? current.lastResultPreview,
+                restoreRef: current.restoreRef
+            )
         }
     }
 

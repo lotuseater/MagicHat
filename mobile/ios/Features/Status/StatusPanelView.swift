@@ -70,6 +70,42 @@ public struct StatusPanelView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Live Updates")
+                            .font(.headline)
+                        Spacer()
+                        Text(store.streamStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if store.streamEvents.isEmpty {
+                        Text("Waiting for live stream events from Team App.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(Array(store.streamEvents.suffix(12))) { event in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(event.type)
+                                    .font(.caption.bold())
+                                Text(
+                                    [event.updatedAt, event.message, event.outputChunk]
+                                        .compactMap { $0 }
+                                        .joined(separator: " | ")
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                }
             } else {
                 ContentUnavailableView(
                     "No Status Yet",
