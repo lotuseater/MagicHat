@@ -9,6 +9,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
     private let eventStreamClient: any InstanceEventStreaming
 
     private var bootstrapped = false
+    private var hosts: [HostBeacon] = []
     private var host: HostBeacon?
     private var client: HostAPIClient?
     private var sessionSnapshot: SessionSnapshot?
@@ -97,7 +98,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
 
         self.host = normalizedHost
         self.client = pairedClient
-        try await persistHost(normalizedHost)
+        try await activateHost(normalizedHost)
         try await updateSnapshot(
             instanceID: sessionSnapshot?.activeInstanceID,
             sessionID: sessionSnapshot?.activeSessionID,
@@ -128,8 +129,43 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         return try await currentHostRecord()
     }
 
+    public func pairedHosts() async -> [HostBeacon] {
+        try? await ensureBootstrapped()
+        return hosts
+    }
+
     public func currentHost() async -> HostBeacon? {
         await safeBootstrappedHost()
+    }
+
+    public func selectHost(id: String) async throws {
+        try await ensureBootstrapped()
+        guard let nextHost = hosts.first(where: { $0.hostID == id }) else {
+            throw HostAPIError.noPairedHost
+        }
+
+        self.host = nextHost
+        self.client = nextHost.resolvedConnectionMode == .lanDirect && nextHost.resolvedBaseURL != nil
+            ? makeClient(nextHost.resolvedBaseURL!, nextHost.sessionToken)
+            : nil
+        try await persistHostsState(activeHostID: id, preserveSnapshot: false)
+    }
+
+    public func removeHost(id: String) async throws {
+        try await ensureBootstrapped()
+        hosts.removeAll { $0.hostID == id }
+        let nextActive = if host?.hostID == id {
+            hosts.first
+        } else {
+            host
+        }
+        host = nextActive
+        if let nextActive, nextActive.resolvedConnectionMode == .lanDirect, let baseURL = nextActive.resolvedBaseURL {
+            client = makeClient(baseURL, nextActive.sessionToken)
+        } else {
+            client = nil
+        }
+        try await persistHostsState(activeHostID: nextActive?.hostID, preserveSnapshot: false)
     }
 
     public func listInstances() async throws -> [TeamAppInstance] {
@@ -442,7 +478,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         )
 
         self.client = nil
-        try await persistHost(pairedHost)
+        try await activateHost(pairedHost)
         try await updateSnapshot(
             instanceID: sessionSnapshot?.activeInstanceID,
             sessionID: sessionSnapshot?.activeSessionID,
@@ -457,7 +493,11 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         }
 
         bootstrapped = true
-        host = await persistence.loadPairedHost()
+        let persistedHosts = await persistence.loadPairedHostsState()
+        hosts = persistedHosts?.hosts ?? []
+        host = persistedHosts.flatMap { snapshot in
+            snapshot.hosts.first(where: { $0.hostID == snapshot.activeHostID }) ?? snapshot.hosts.first
+        }
         sessionSnapshot = await persistence.loadSessionSnapshot()
 
         if let host, host.resolvedConnectionMode == .lanDirect, let baseURL = host.resolvedBaseURL {
@@ -532,7 +572,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             certificatePinsetVersion: host.certificatePinsetVersion,
             lastKnownHostPresence: host.lastKnownHostPresence
         )
-        try await persistHost(updatedHost)
+        try await replaceKnownHost(updatedHost, preserveSnapshot: true)
         return updatedHost
     }
 
@@ -562,7 +602,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             certificatePinsetVersion: host.certificatePinsetVersion,
             lastKnownHostPresence: presence.status
         )
-        try await persistHost(updatedHost)
+        try await replaceKnownHost(updatedHost, preserveSnapshot: true)
         return updatedHost
     }
 
@@ -614,20 +654,50 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
                 accessTokenExpiresAt: currentHost.accessTokenExpiresAt
             )
             self.client = recoveredClient
-            try await persistHost(recoveredHostRecord)
+            try await replaceKnownHost(recoveredHostRecord, preserveSnapshot: true)
             return recoveredClient
         }
 
         throw HostAPIError.missingPairingCode
     }
 
-    private func persistHost(_ host: HostBeacon) async throws {
+    private func activateHost(_ host: HostBeacon) async throws {
+        let existing = hosts.filter { $0.hostID != host.hostID }
+        hosts = existing + [host]
         self.host = host
-        try await persistence.savePairedHost(host)
+        if host.resolvedConnectionMode == .lanDirect, let baseURL = host.resolvedBaseURL {
+            self.client = makeClient(baseURL, host.sessionToken)
+        } else {
+            self.client = nil
+        }
+        try await persistHostsState(activeHostID: host.hostID, preserveSnapshot: false)
+    }
 
-        if let snapshot = self.sessionSnapshot {
+    private func replaceKnownHost(_ updatedHost: HostBeacon, preserveSnapshot: Bool) async throws {
+        hosts = hosts.map { host in
+            host.hostID == updatedHost.hostID ? updatedHost : host
+        }
+        if hosts.contains(where: { $0.hostID == updatedHost.hostID }) == false {
+            hosts.append(updatedHost)
+        }
+        if host?.hostID == updatedHost.hostID {
+            self.host = updatedHost
+        }
+        try await persistHostsState(activeHostID: host?.hostID, preserveSnapshot: preserveSnapshot)
+    }
+
+    private func persistHostsState(activeHostID: String?, preserveSnapshot: Bool) async throws {
+        let normalizedActiveHost = hosts.first(where: { $0.hostID == activeHostID }) ?? hosts.first
+        self.host = normalizedActiveHost
+
+        let state = normalizedActiveHost == nil && hosts.isEmpty
+            ? nil
+            : PairedHostsState(hosts: hosts, activeHostID: normalizedActiveHost?.hostID)
+        try await persistence.savePairedHostsState(state)
+
+        if preserveSnapshot, let snapshot = self.sessionSnapshot, let normalizedActiveHost {
             let updatedSnapshot = SessionSnapshot(
-                host: host,
+                host: normalizedActiveHost,
                 activeInstanceID: snapshot.activeInstanceID,
                 activeSessionID: snapshot.activeSessionID,
                 activeRestoreRef: snapshot.activeRestoreRef,
@@ -635,6 +705,15 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             )
             self.sessionSnapshot = updatedSnapshot
             try await persistence.saveSessionSnapshot(updatedSnapshot)
+        } else if normalizedActiveHost == nil || preserveSnapshot == false {
+            self.sessionSnapshot = normalizedActiveHost == nil ? nil : SessionSnapshot(
+                host: normalizedActiveHost!,
+                activeInstanceID: nil,
+                activeSessionID: nil,
+                activeRestoreRef: nil,
+                updatedAt: Date()
+            )
+            try await persistence.saveSessionSnapshot(self.sessionSnapshot)
         }
     }
 

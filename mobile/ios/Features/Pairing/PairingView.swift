@@ -3,6 +3,7 @@ import SwiftUI
 public struct PairingView: View {
     @ObservedObject private var store: FeatureStore
     @State private var selectedHostID: String?
+    @State private var selectedPairedHostID: String?
     @State private var pin = ""
     @State private var pairingURI = ""
 
@@ -73,6 +74,52 @@ public struct PairingView: View {
                 }
                 .listStyle(.plain)
                 .frame(minHeight: 120)
+            }
+
+            if store.pairedHosts.isEmpty == false {
+                Text("Paired Hosts")
+                    .font(.headline)
+
+                List(store.pairedHosts) { host in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(host.displayName)
+                                .font(.subheadline.bold())
+                            Text(host.baseURL)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if store.pairedHost?.hostID == host.hostID {
+                            Text("Active")
+                                .font(.caption.bold())
+                                .foregroundStyle(.green)
+                        } else if selectedPairedHostID == host.hostID {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedPairedHostID = host.hostID
+                    }
+                    .swipeActions {
+                        Button(role: .destructive) {
+                            Task { await store.forgetPairedHost(host.hostID) }
+                        } label: {
+                            Label("Forget", systemImage: "trash")
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .frame(minHeight: 120)
+
+                Button("Select Paired Host") {
+                    guard let selectedPairedHostID else { return }
+                    Task { await store.selectPairedHost(selectedPairedHostID) }
+                }
+                .buttonStyle(.bordered)
+                .disabled(selectedPairedHostID == nil || selectedPairedHostID == store.pairedHost?.hostID || store.pairingState == .pairing)
             }
 
             TextField("Pairing PIN (optional)", text: $pin)

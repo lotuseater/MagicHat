@@ -12,6 +12,7 @@ public final class FeatureStore: ObservableObject {
 
     @Published public private(set) var pairingState: PairingState = .disconnected
     @Published public private(set) var discoveredHosts: [HostBeacon] = []
+    @Published public private(set) var pairedHosts: [HostBeacon] = []
     @Published public private(set) var pairedHost: HostBeacon?
 
     @Published public private(set) var instances: [TeamAppInstance] = []
@@ -46,6 +47,7 @@ public final class FeatureStore: ObservableObject {
 
     public func discoverHosts() async {
         await performPairingAction(state: .discovering) {
+            pairedHosts = await runtime.pairedHosts()
             if let connected = await runtime.currentHost() {
                 discoveredHosts = [connected]
                 pairedHost = connected
@@ -80,11 +82,8 @@ public final class FeatureStore: ObservableObject {
                 paired = try await runtime.pairToFirstAvailableHost(pairingCode: pin)
             }
 
-            pairedHost = paired
+            try await syncHostContext()
             discoveredHosts = [paired]
-            activeHostPresence = paired.lastKnownHostPresence
-            pairingState = .paired
-            knownRestoreRefs = try await runtime.listKnownRestoreRefs()
             await reloadInstances()
         }
     }
@@ -95,21 +94,42 @@ public final class FeatureStore: ObservableObject {
 
         await performPairingAction(state: .pairing) {
             let paired = try await runtime.registerPairingURI(trimmed, deviceName: deviceName)
-            pairedHost = paired
+            try await syncHostContext()
             discoveredHosts = [paired]
-            activeHostPresence = paired.lastKnownHostPresence
-            pairingState = .paired
-            knownRestoreRefs = try await runtime.listKnownRestoreRefs()
             await reloadInstances()
+        }
+    }
+
+    public func selectPairedHost(_ hostID: String) async {
+        await performPairingAction(state: .pairing) {
+            try await runtime.selectHost(id: hostID)
+            try await syncHostContext(resetSelection: true)
+            await reloadInstances()
+        }
+    }
+
+    public func forgetPairedHost(_ hostID: String) async {
+        await performPairingAction(state: .pairing) {
+            try await runtime.removeHost(id: hostID)
+            try await syncHostContext(resetSelection: true)
+            if pairedHost != nil {
+                await reloadInstances()
+            } else {
+                resetInstanceContext()
+            }
         }
     }
 
     public func reloadInstances() async {
         await performRemoteAction {
+            guard pairedHost != nil else {
+                resetInstanceContext()
+                return
+            }
             let updated = try await runtime.listInstances()
             instances = updated
             knownRestoreRefs = try await runtime.listKnownRestoreRefs()
-            activeHostPresence = await runtime.currentHost()?.lastKnownHostPresence
+            try await syncHostContext()
 
             if activeInstanceID == nil || updated.contains(where: { $0.id == activeInstanceID }) == false {
                 activeInstanceID = updated.first?.id
@@ -257,6 +277,30 @@ public final class FeatureStore: ObservableObject {
         pollingTask = nil
     }
 
+    private func syncHostContext(resetSelection: Bool = false) async throws {
+        let currentHost = await runtime.currentHost()
+        pairedHosts = await runtime.pairedHosts()
+        pairedHost = currentHost
+        activeHostPresence = currentHost?.lastKnownHostPresence
+        pairingState = currentHost == nil ? .disconnected : .paired
+
+        if resetSelection {
+            resetInstanceContext()
+        }
+    }
+
+    private func resetInstanceContext() {
+        instances = []
+        knownRestoreRefs = []
+        activeInstanceID = nil
+        statusSnapshot = nil
+        streamEvents = []
+        streamStatus = "idle"
+        latestPromptReceipt = nil
+        latestFollowUpReceipt = nil
+        lastRestoredSessionID = nil
+    }
+
     private func replaceOrAppend(_ instance: TeamAppInstance) {
         if let index = instances.firstIndex(where: { $0.id == instance.id }) {
             instances[index] = instance
@@ -343,11 +387,11 @@ public final class FeatureStore: ObservableObject {
 
         do {
             try await work()
-            if pairedHost == nil {
+            if pairedHost == nil && pairedHosts.isEmpty {
                 pairingState = .disconnected
             }
         } catch {
-            pairingState = .disconnected
+            pairingState = pairedHost == nil && pairedHosts.isEmpty ? .disconnected : .paired
             lastErrorMessage = error.localizedDescription
         }
     }

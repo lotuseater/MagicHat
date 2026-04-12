@@ -10,7 +10,24 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
         lastSeenAt: Date(),
         connectionMode: .lanDirect
     )
+    private let demoRelayHost = HostBeacon(
+        hostID: "relay-main",
+        displayName: "Remote Mac Mini",
+        baseURL: "https://relay.example.test",
+        apiVersion: "v2",
+        capabilities: ["instances", "prompt", "follow-up", "restore", "remote_pairing"],
+        lastSeenAt: Date(),
+        connectionMode: .remoteRelay,
+        sessionToken: "preview-access-token",
+        refreshToken: "preview-refresh-token",
+        accessTokenExpiresAt: Date().addingTimeInterval(3600),
+        refreshTokenExpiresAt: Date().addingTimeInterval(86400),
+        deviceID: "preview-device-id",
+        certificatePinsetVersion: "dev-insecure",
+        lastKnownHostPresence: "online"
+    )
 
+    private var pairedHostsList: [HostBeacon]
     private var pairedHost: HostBeacon?
     private var activeInstanceID: String?
     private var activeSessionID: String?
@@ -40,6 +57,8 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
     ]
 
     public init() {
+        pairedHostsList = [demoHost, demoRelayHost]
+        pairedHost = demoHost
         activeInstanceID = instances.first?.id
         activeSessionID = instances.first?.activeSessionID
     }
@@ -47,23 +66,48 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
     public func pairToFirstAvailableHost(pairingCode: String?) async throws -> HostBeacon {
         _ = pairingCode
         pairedHost = demoHost
+        upsertHost(demoHost)
         return demoHost
     }
 
     public func pair(to host: HostBeacon, pairingCode: String?) async throws {
         _ = pairingCode
         pairedHost = host
+        upsertHost(host)
     }
 
     public func registerPairingURI(_ rawURI: String, deviceName: String) async throws -> HostBeacon {
         _ = rawURI
         _ = deviceName
-        pairedHost = demoHost
-        return demoHost
+        pairedHost = demoRelayHost
+        upsertHost(demoRelayHost)
+        return demoRelayHost
+    }
+
+    public func pairedHosts() async -> [HostBeacon] {
+        pairedHostsList
     }
 
     public func currentHost() async -> HostBeacon? {
         pairedHost
+    }
+
+    public func selectHost(id: String) async throws {
+        guard let nextHost = pairedHostsList.first(where: { $0.hostID == id }) else {
+            throw HostAPIError.noPairedHost
+        }
+        pairedHost = nextHost
+        activeInstanceID = nil
+        activeSessionID = nil
+    }
+
+    public func removeHost(id: String) async throws {
+        pairedHostsList.removeAll { $0.hostID == id }
+        if pairedHost?.hostID == id {
+            pairedHost = pairedHostsList.first
+            activeInstanceID = nil
+            activeSessionID = nil
+        }
     }
 
     public func listInstances() async throws -> [TeamAppInstance] {
@@ -266,5 +310,10 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
         }
 
         instances[index] = transform(instances[index])
+    }
+
+    private func upsertHost(_ host: HostBeacon) {
+        pairedHostsList.removeAll { $0.hostID == host.hostID }
+        pairedHostsList.append(host)
     }
 }

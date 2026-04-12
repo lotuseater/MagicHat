@@ -185,6 +185,6 @@ final class LanRuntimeTests: XCTestCase {
         let knownRestoreRefs = try await service.listKnownRestoreRefs()
         XCTAssertEqual(knownRestoreRefs.map(\.restoreRef), ["restore_alpha"])
         XCTAssertEqual(recorder.pairingCodes, ["123456"])
-        XCTAssertEqual(recorder.seenAccessTokens, [nil, Optional("lan_token")])
+        XCTAssertEqual(recorder.seenAccessTokens, [nil, Optional("lan_token"), Optional("lan_token")])
     }
 }
