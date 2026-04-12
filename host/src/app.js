@@ -378,7 +378,7 @@ export function createMagicHatRuntime(options = {}) {
         include_terminals: parseBoolean(req.query.include_terminals, true),
       });
       res.json({
-        ...hostControlService.beaconStore.toPublicInstance(instance),
+        ...hostControlService.toLanInstance(instance),
         status: inspect?.status || "error",
         snapshot: inspect?.snapshot || {},
         chat: Array.isArray(inspect?.chat) ? inspect.chat : [],

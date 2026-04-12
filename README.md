@@ -74,6 +74,12 @@ Loopback relay dev start:
 ./scripts/remote-validation/start_relay.sh
 ```
 
+Remote relay round-trip smoke:
+
+```bash
+node ./scripts/remote-validation/remote_roundtrip_smoke.mjs
+```
+
 Python transport tests:
 
 ```bash

@@ -44,7 +44,7 @@ describe("restore ref routes", () => {
     expect(response.body.restore_refs[0].restore_ref).toMatch(/^restore_/);
   });
 
-  it("includes restore_ref on LAN list and detail payloads", async () => {
+  it("includes restore_ref on LAN list, detail, and poll payloads", async () => {
     const ctx = await createRuntime({
       beaconEntries: [
         buildBeaconEntry({
@@ -70,11 +70,14 @@ describe("restore ref routes", () => {
     const token = await pairDevice(ctx);
     const listed = await ctx.http.get("/v1/instances", { token });
     const detail = await ctx.http.get("/v1/instances/wizard_team_app_412_4120", { token });
+    const polled = await ctx.http.get("/v1/instances/wizard_team_app_412_4120/poll", { token });
 
     expect(listed.status).toBe(200);
     expect(listed.body.instances[0].restore_ref).toMatch(/^restore_/);
     expect(detail.status).toBe(200);
     expect(detail.body.restore_ref).toMatch(/^restore_/);
+    expect(polled.status).toBe(200);
+    expect(polled.body.restore_ref).toMatch(/^restore_/);
   });
 
   it("launches a restored instance by restore_ref without exposing restore paths", async () => {

@@ -159,6 +159,30 @@ export async function createRelayRuntime(options = {}) {
     }
   }
 
+  async function closeTrackedSocket(ws) {
+    if (!ws) {
+      return;
+    }
+    if (ws.readyState === 3) {
+      return;
+    }
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 1_000);
+      ws.once("close", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      try {
+        if (ws.readyState !== 2) {
+          ws.close();
+        }
+      } catch {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+  }
+
   function dispatchCommandToHost(hostId, command) {
     const requestId = randomId("req");
     return new Promise((resolve, reject) => {
@@ -925,11 +949,11 @@ export async function createRelayRuntime(options = {}) {
     attachServer,
     close: async () => {
       clearInterval(heartbeatSweeper);
+      const closePromises = [];
       for (const connection of hostConnections.values()) {
-        try {
-          connection.ws.close();
-        } catch {}
+        closePromises.push(closeTrackedSocket(connection.ws));
       }
+      await Promise.allSettled(closePromises);
       await store.close();
     },
   };
