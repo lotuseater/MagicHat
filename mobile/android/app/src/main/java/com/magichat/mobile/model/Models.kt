@@ -59,6 +59,36 @@ data class PairedHostRecord(
     @Json(name = "last_known_host_presence") val lastKnownHostPresence: String? = null,
 )
 
+fun PairedHostRecord.effectivePresence(presenceOverride: String? = null): String? {
+    return presenceOverride?.takeIf { it.isNotBlank() } ?: lastKnownHostPresence?.takeIf { it.isNotBlank() }
+}
+
+fun PairedHostRecord.connectionModeLabel(): String {
+    return when (HostConnectionMode.fromWire(mode)) {
+        HostConnectionMode.REMOTE_RELAY -> "Remote relay"
+        HostConnectionMode.LAN_DIRECT -> "LAN direct"
+    }
+}
+
+fun PairedHostRecord.presenceLabel(presenceOverride: String? = null): String? {
+    return effectivePresence(presenceOverride)?.replace('_', ' ')
+}
+
+fun PairedHostRecord.canRunCommands(presenceOverride: String? = null): Boolean {
+    return when (effectivePresence(presenceOverride)?.lowercase()) {
+        "offline", "unreachable", "disconnected" -> false
+        else -> true
+    }
+}
+
+fun PairedHostRecord.endpointLabel(): String {
+    return if (HostConnectionMode.fromWire(mode) == HostConnectionMode.REMOTE_RELAY) {
+        "Relay: ${relayUrl ?: baseUrl}"
+    } else {
+        "Endpoint: $baseUrl"
+    }
+}
+
 data class TeamAppInstance(
     @Json(name = "instance_id") val instanceId: String,
     val title: String,

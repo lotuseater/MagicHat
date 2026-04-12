@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.model.KnownRestoreRef
 import com.magichat.mobile.model.TeamAppInstance
+import com.magichat.mobile.model.canRunCommands
 import com.magichat.mobile.state.MagicHatUiState
 import com.magichat.mobile.ui.components.HostContextCard
 
@@ -33,6 +34,7 @@ fun InstancesScreen(
     onRestoreSession: () -> Unit,
 ) {
     val hasActiveHost = state.activeHost != null
+    val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
@@ -52,7 +54,7 @@ fun InstancesScreen(
                 Button(onClick = onRefresh, enabled = hasActiveHost && state.isLoading.not()) {
                     Text("Refresh")
                 }
-                Button(onClick = onLaunchInstance, enabled = hasActiveHost && state.isLoading.not()) {
+                Button(onClick = onLaunchInstance, enabled = canRunCommands && state.isLoading.not()) {
                     Text("Launch New")
                 }
             }
@@ -81,7 +83,7 @@ fun InstancesScreen(
                 )
                 Button(
                     onClick = onRestoreSession,
-                    enabled = hasActiveHost && state.restoreSessionInput.isNotBlank() && state.isLoading.not(),
+                    enabled = canRunCommands && state.restoreSessionInput.isNotBlank() && state.isLoading.not(),
                 ) {
                     Text("Restore")
                 }
@@ -95,6 +97,13 @@ fun InstancesScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+        } else if (!canRunCommands) {
+            item {
+                Text(
+                    "The active host is offline, so Team App commands are temporarily disabled. You can still refresh or switch hosts.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
 
         if (state.knownRestoreRefs.isNotEmpty()) {
@@ -104,7 +113,7 @@ fun InstancesScreen(
             items(state.knownRestoreRefs, key = { it.restoreRef }) { restoreRef ->
                 RestoreRefRow(
                     restoreRef = restoreRef,
-                    enabled = hasActiveHost && state.isLoading.not(),
+                    enabled = canRunCommands && state.isLoading.not(),
                     onPick = { onPickRestoreRef(restoreRef.restoreRef) },
                 )
             }
@@ -130,7 +139,7 @@ fun InstancesScreen(
                 InstanceRow(
                     instance = instance,
                     selected = instance.instanceId == state.selectedInstanceId,
-                    enabled = hasActiveHost && state.isLoading.not(),
+                    enabled = canRunCommands && state.isLoading.not(),
                     onOpen = { onOpenInstance(instance.instanceId) },
                     onClose = { onCloseInstance(instance.instanceId) },
                 )

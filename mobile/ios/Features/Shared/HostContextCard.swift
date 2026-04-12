@@ -20,10 +20,10 @@ public struct HostContextCard: View {
             if let host {
                 Text(host.displayName)
                     .font(.headline)
-                Text("\(modeLabel(for: host))\(presenceLabel)")
+                Text("\(host.transportLabel)\(presenceLabel)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text(endpointLabel(for: host))
+                Text(host.endpointLabel)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 if let deviceID = host.deviceID, deviceID.isEmpty == false {
@@ -35,6 +35,11 @@ public struct HostContextCard: View {
                     Text("Active instance: \(activeInstanceID)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+                if host.canRunCommands == false {
+                    Text("This host is offline right now. You can still manage pairings, but Team App commands are paused until it reconnects.")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 }
             } else {
                 Text("No host selected")
@@ -50,25 +55,8 @@ public struct HostContextCard: View {
     }
 
     private var presenceLabel: String {
-        guard let presence, presence.isEmpty == false else { return "" }
-        return " • \(presence.replacingOccurrences(of: "_", with: " "))"
-    }
-
-    private func modeLabel(for host: HostBeacon) -> String {
-        switch host.resolvedConnectionMode {
-        case .remoteRelay:
-            return "Remote relay"
-        case .lanDirect:
-            return "LAN direct"
-        }
-    }
-
-    private func endpointLabel(for host: HostBeacon) -> String {
-        switch host.resolvedConnectionMode {
-        case .remoteRelay:
-            return "Relay: \(host.baseURL)"
-        case .lanDirect:
-            return "Endpoint: \(host.baseURL)"
-        }
+        let label = host?.presenceDisplayLabel ?? presence?.replacingOccurrences(of: "_", with: " ")
+        guard let label, label.isEmpty == false else { return "" }
+        return " • \(label)"
     }
 }

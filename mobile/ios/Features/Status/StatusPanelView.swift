@@ -9,6 +9,8 @@ public struct StatusPanelView: View {
     }
 
     public var body: some View {
+        let canRunCommands = store.pairedHost?.canRunCommands == true
+
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Health + Results")
@@ -18,7 +20,7 @@ public struct StatusPanelView: View {
                     Task { await store.refreshStatus() }
                 }
                 .buttonStyle(.bordered)
-                .disabled(store.activeInstanceID == nil || store.isPerformingRemoteAction)
+                .disabled(store.activeInstanceID == nil || store.isPerformingRemoteAction || canRunCommands == false)
             }
 
             HostContextCard(
@@ -44,13 +46,13 @@ public struct StatusPanelView: View {
                                 Task { await store.answerTrustPrompt(true) }
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(store.isPerformingRemoteAction)
+                            .disabled(store.isPerformingRemoteAction || canRunCommands == false)
 
                             Button("Deny") {
                                 Task { await store.answerTrustPrompt(false) }
                             }
                             .buttonStyle(.bordered)
-                            .disabled(store.isPerformingRemoteAction)
+                            .disabled(store.isPerformingRemoteAction || canRunCommands == false)
                         }
                     }
                     .padding(12)

@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.magichat.mobile.model.canRunCommands
 import com.magichat.mobile.state.MagicHatUiState
 import com.magichat.mobile.ui.components.HostContextCard
 
@@ -29,8 +30,9 @@ fun InstanceDetailScreen(
     onTrustDenied: () -> Unit,
 ) {
     val detail = state.selectedDetail
-    val canSendPrompt = state.selectedInstanceId != null && state.promptInput.isNotBlank() && state.isLoading.not()
-    val canSendFollowUp = state.selectedInstanceId != null && state.followUpInput.isNotBlank() && state.isLoading.not()
+    val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
+    val canSendPrompt = state.selectedInstanceId != null && state.promptInput.isNotBlank() && state.isLoading.not() && canRunCommands
+    val canSendFollowUp = state.selectedInstanceId != null && state.followUpInput.isNotBlank() && state.isLoading.not() && canRunCommands
 
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -45,6 +47,12 @@ fun InstanceDetailScreen(
             presence = state.activeHostPresence,
             activeInstanceId = state.selectedInstanceId,
         )
+        if (state.selectedInstanceId != null && !canRunCommands) {
+            Text(
+                "The active host is offline. Prompt, follow-up, and trust actions will resume once that host reconnects.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
 
         if (detail != null) {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -86,10 +94,10 @@ fun InstanceDetailScreen(
                             "Approve the project on this phone so the task can keep moving.",
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        Button(onClick = onTrustApproved, enabled = state.isLoading.not()) {
+                        Button(onClick = onTrustApproved, enabled = state.isLoading.not() && canRunCommands) {
                             Text("Trust Project")
                         }
-                        Button(onClick = onTrustDenied, enabled = state.isLoading.not()) {
+                        Button(onClick = onTrustDenied, enabled = state.isLoading.not() && canRunCommands) {
                             Text("Deny")
                         }
                     }
@@ -107,7 +115,7 @@ fun InstanceDetailScreen(
             onValueChange = onPromptChanged,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Initial prompt") },
-            enabled = state.selectedInstanceId != null && state.isLoading.not(),
+            enabled = state.selectedInstanceId != null && state.isLoading.not() && canRunCommands,
         )
         Button(onClick = onSendPrompt, enabled = canSendPrompt) {
             Text("Send Prompt")
@@ -118,7 +126,7 @@ fun InstanceDetailScreen(
             onValueChange = onFollowUpChanged,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Follow-up") },
-            enabled = state.selectedInstanceId != null && state.isLoading.not(),
+            enabled = state.selectedInstanceId != null && state.isLoading.not() && canRunCommands,
         )
         Button(onClick = onSendFollowUp, enabled = canSendFollowUp) {
             Text("Send Follow-up")

@@ -11,6 +11,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.model.PairedHostRecord
+import com.magichat.mobile.model.canRunCommands
+import com.magichat.mobile.model.connectionModeLabel
+import com.magichat.mobile.model.endpointLabel
+import com.magichat.mobile.model.presenceLabel
 
 @Composable
 fun HostContextCard(
@@ -33,38 +37,29 @@ fun HostContextCard(
                 return@Column
             }
 
+            val canRunCommands = host.canRunCommands(presence)
             Text(host.displayName, style = MaterialTheme.typography.titleSmall)
             Text(
-                "${modeLabel(host.mode)}${presenceLabel(presence)}",
+                buildString {
+                    append(host.connectionModeLabel())
+                    host.presenceLabel(presence)?.let { append(" • ").append(it) }
+                },
                 style = MaterialTheme.typography.bodySmall,
             )
-            Text(endpointLabel(host), style = MaterialTheme.typography.bodySmall)
+            Text(host.endpointLabel(), style = MaterialTheme.typography.bodySmall)
             host.deviceId?.takeIf { it.isNotBlank() }?.let {
                 Text("Device: $it", style = MaterialTheme.typography.bodySmall)
             }
             activeInstanceId?.takeIf { it.isNotBlank() }?.let {
                 Text("Active instance: $it", style = MaterialTheme.typography.bodySmall)
             }
+            if (!canRunCommands) {
+                Text(
+                    "This host is offline right now. You can still manage pairings, but Team App commands are paused until it reconnects.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
-    }
-}
-
-private fun modeLabel(mode: String): String {
-    return when (mode.lowercase()) {
-        "remote_relay" -> "Remote relay"
-        else -> "LAN direct"
-    }
-}
-
-private fun presenceLabel(presence: String?): String {
-    val normalized = presence?.takeIf { it.isNotBlank() } ?: return ""
-    return " • ${normalized.replace('_', ' ')}"
-}
-
-private fun endpointLabel(host: PairedHostRecord): String {
-    return if (host.mode.lowercase() == "remote_relay") {
-        "Relay: ${host.relayUrl ?: host.baseUrl}"
-    } else {
-        "Endpoint: ${host.baseUrl}"
     }
 }

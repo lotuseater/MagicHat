@@ -9,6 +9,7 @@ public struct InstanceListView: View {
 
     public var body: some View {
         let hasPairedHost = store.pairedHost != nil
+        let canRunCommands = store.pairedHost?.canRunCommands == true
 
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -25,7 +26,7 @@ public struct InstanceListView: View {
                     Task { await store.launchInstance() }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(hasPairedHost == false || store.isPerformingRemoteAction)
+                .disabled(canRunCommands == false || store.isPerformingRemoteAction)
             }
 
             HostContextCard(
@@ -40,6 +41,10 @@ public struct InstanceListView: View {
                     systemImage: "desktopcomputer",
                     description: Text("Pair with a Team App host first, then this tab can launch and manage instances.")
                 )
+            } else if canRunCommands == false {
+                Text("The active host is offline. You can still refresh to check again or switch to another paired host.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             } else if store.instances.isEmpty {
                 ContentUnavailableView(
                     "No Open Instances",
@@ -81,7 +86,7 @@ public struct InstanceListView: View {
                             Task { await store.switchInstance(instance.id) }
                         }
                         .buttonStyle(.bordered)
-                        .disabled(store.activeInstanceID == instance.id || store.isPerformingRemoteAction)
+                        .disabled(store.activeInstanceID == instance.id || store.isPerformingRemoteAction || canRunCommands == false)
 
                         Button(role: .destructive) {
                             Task { await store.closeInstance(instance.id) }
@@ -89,7 +94,7 @@ public struct InstanceListView: View {
                             Label("Close", systemImage: "xmark.circle")
                         }
                         .buttonStyle(.bordered)
-                        .disabled(store.isPerformingRemoteAction)
+                        .disabled(store.isPerformingRemoteAction || canRunCommands == false)
                     }
                     .padding(.vertical, 4)
                 }

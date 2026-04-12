@@ -11,6 +11,7 @@ public struct RestoreSessionView: View {
 
     public var body: some View {
         let hasPairedHost = store.pairedHost != nil
+        let canRunCommands = store.pairedHost?.canRunCommands == true
 
         VStack(alignment: .leading, spacing: 12) {
             Text("Restore Session")
@@ -32,6 +33,10 @@ public struct RestoreSessionView: View {
 
             if hasPairedHost == false {
                 Text("Pair with a Team App host first so this screen has a safe place to restore work into.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if canRunCommands == false {
+                Text("The active host is offline, so restore actions are paused until it reconnects.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -69,7 +74,7 @@ public struct RestoreSessionView: View {
                 Task { await store.restoreSession(sessionID: targetSession) }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasPairedHost == false || store.isPerformingRemoteAction)
+            .disabled(sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasPairedHost == false || canRunCommands == false || store.isPerformingRemoteAction)
 
             Toggle("Monitor progress periodically", isOn: $monitorEnabled)
                 .onChange(of: monitorEnabled) { _, enabled in

@@ -61,6 +61,42 @@ public struct HostBeacon: Codable, Hashable, Sendable, Identifiable {
     public var resolvedConnectionMode: HostConnectionMode {
         connectionMode ?? .lanDirect
     }
+
+    public var normalizedPresence: String? {
+        let trimmed = lastKnownHostPresence?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    public var canRunCommands: Bool {
+        switch normalizedPresence?.lowercased() {
+        case "offline", "unreachable", "disconnected":
+            return false
+        default:
+            return true
+        }
+    }
+
+    public var transportLabel: String {
+        switch resolvedConnectionMode {
+        case .lanDirect:
+            return "LAN direct"
+        case .remoteRelay:
+            return "Remote relay"
+        }
+    }
+
+    public var endpointLabel: String {
+        switch resolvedConnectionMode {
+        case .lanDirect:
+            return "Endpoint: \(baseURL)"
+        case .remoteRelay:
+            return "Relay: \(baseURL)"
+        }
+    }
+
+    public var presenceDisplayLabel: String? {
+        normalizedPresence?.replacingOccurrences(of: "_", with: " ")
+    }
 }
 
 public struct HostHealth: Codable, Hashable, Sendable {
