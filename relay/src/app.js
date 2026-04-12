@@ -600,6 +600,24 @@ export async function createRelayRuntime(options = {}) {
   );
 
   app.post(
+    "/v2/mobile/hosts/:hostId/instances/:instanceId/trust",
+    asyncRoute(async (req, res) => {
+      if (typeof req.body?.approved !== "boolean") {
+        res.status(400).json({ error: "bad_request" });
+        return;
+      }
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "answer_trust_prompt",
+        params: {
+          instance_id: req.params.instanceId,
+          approved: req.body.approved,
+        },
+      });
+      res.status(202).json(result.result);
+    }),
+  );
+
+  app.post(
     "/v2/mobile/hosts/:hostId/instances/:instanceId/restore",
     asyncRoute(async (req, res) => {
       const result = await dispatchCommandToHost(req.params.hostId, {

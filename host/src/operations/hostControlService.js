@@ -120,7 +120,7 @@ export class HostControlService {
       await this.ipcClient.sendCommand(launched, {
         cmd: "restore_session",
         path: resolvedRestorePath,
-      });
+      }, { requireOk: true });
     }
 
     return remoteSafe ? this.toRemoteInstance(launched) : this.beaconStore.toPublicInstance(launched);
@@ -132,7 +132,7 @@ export class HostControlService {
       cmd: "close_instance",
       instance_id: instance.instance_id || undefined,
       pid: instance.pid,
-    });
+    }, { requireOk: true });
     return this.lifecycleManager.closeInstance(instance);
   }
 
@@ -143,7 +143,7 @@ export class HostControlService {
       instance_id: instance.instance_id || undefined,
       pid: instance.pid,
       prompt,
-    });
+    }, { requireOk: true });
   }
 
   async sendFollowUp(instanceId, message) {
@@ -153,7 +153,17 @@ export class HostControlService {
       instance_id: instance.instance_id || undefined,
       pid: instance.pid,
       prompt: message,
-    });
+    }, { requireOk: true });
+  }
+
+  async answerTrustPrompt(instanceId, approved) {
+    const instance = await this.requireInstance(instanceId);
+    return this.ipcClient.sendCommand(instance, {
+      cmd: "answer_trust_prompt",
+      instance_id: instance.instance_id || undefined,
+      pid: instance.pid,
+      approved: !!approved,
+    }, { requireOk: true });
   }
 
   async restoreExistingInstance(instanceId, { restoreStatePath, restoreRef, remoteSafe = false }) {
@@ -170,7 +180,7 @@ export class HostControlService {
     await this.ipcClient.sendCommand(instance, {
       cmd: "restore_session",
       path: resolvedRestorePath,
-    });
+    }, { requireOk: true });
     return { status: "queued" };
   }
 

@@ -27,6 +27,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function commandErrorFromResponse(response) {
+  const error = new Error(
+    response?.error?.message || response?.msg || response?.error?.code || "command_failed",
+  );
+  error.code = response?.error?.code || "command_failed";
+  error.response = response;
+  return error;
+}
+
 export class TeamAppIpcClient {
   constructor(options = {}) {
     this.pollIntervalMs = options.pollIntervalMs ?? 120;
@@ -58,6 +67,9 @@ export class TeamAppIpcClient {
           const lines = parseJsonLines(content);
           const match = lines.find((line) => line?.seq === seq);
           if (match) {
+            if (options.requireOk && match?.status && match.status !== "ok") {
+              throw commandErrorFromResponse(match);
+            }
             return match;
           }
         } catch {

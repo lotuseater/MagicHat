@@ -1,3 +1,12 @@
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+function launchToken(prefixBase = "magichat_team_app") {
+  return `${prefixBase}_${process.pid}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
 export class LifecycleManager {
   constructor({ beaconStore, ipcClient, processController, launchConfig }) {
     this.beaconStore = beaconStore;
@@ -9,6 +18,35 @@ export class LifecycleManager {
     this.closeLocks = new Map();
   }
 
+  async buildLaunchConfig() {
+    const tempRoot = this.launchConfig.automationTempRoot ||
+      path.join(os.tmpdir(), "wizard_team_app", "magichat", "transient");
+    const runRoot = this.launchConfig.runArtifactRoot ||
+      path.join(this.launchConfig.cwd || process.cwd(), ".magichat", "team_app_runs");
+    const prefix = launchToken(this.launchConfig.automationPrefixBase);
+    const artifactDir = path.join(tempRoot, prefix, "transient");
+    const runDir = path.join(runRoot, prefix);
+
+    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.mkdir(runDir, { recursive: true });
+    await fs.mkdir(runRoot, { recursive: true });
+
+    return {
+      ...this.launchConfig,
+      env: {
+        ...(this.launchConfig.env || {}),
+        WIZARD_TEAM_APP_AUTOMATION_PREFIX: prefix,
+        WIZARD_TEAM_APP_HEADLESS_PROMPTS: this.launchConfig.headlessPrompts ? "1" : "0",
+        WIZARD_TEAM_APP_NO_ACTIVATE: this.launchConfig.noActivate ? "1" : "0",
+        WIZARD_TEAM_APP_KEEP_AUTOMATION_ARTIFACTS:
+          this.launchConfig.keepAutomationArtifacts ? "1" : "0",
+        WIZARD_TEAM_APP_TEMP_DIR: artifactDir,
+        WIZARD_TEAM_APP_RUN_ARTIFACT_DIR: runDir,
+        WIZARD_TEAM_APP_RUN_ARTIFACT_ROOT: runRoot,
+      },
+    };
+  }
+
   async launchInstance({ task, startupTimeoutMs } = {}) {
     if (this.launchInFlight) {
       return this.launchInFlight;
@@ -16,10 +54,11 @@ export class LifecycleManager {
 
     this.launchInFlight = (async () => {
       const known = new Set((await this.beaconStore.listInternalInstances()).map((item) => item.pid));
+      const launchConfig = await this.buildLaunchConfig();
 
-      this.processController.launch(this.launchConfig);
+      this.processController.launch(launchConfig);
       const launched = await this.beaconStore.waitForNewInstance(known, {
-        timeoutMs: startupTimeoutMs ?? this.launchConfig.waitMs,
+        timeoutMs: startupTimeoutMs ?? launchConfig.waitMs,
       });
 
       if (task) {
@@ -27,7 +66,7 @@ export class LifecycleManager {
           cmd: "submit_initial_prompt",
           instance_id: launched.instance_id,
           prompt: task,
-        });
+        }, { requireOk: true });
       }
 
       return launched;

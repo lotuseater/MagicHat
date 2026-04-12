@@ -153,6 +153,11 @@ export function createMagicHatRuntime(options = {}) {
               command.params.instance_id,
               command.params.message,
             );
+          case "answer_trust_prompt":
+            return await hostControlService.answerTrustPrompt(
+              command.params.instance_id,
+              command.params.approved,
+            );
           case "restore_instance":
             return await hostControlService.restoreExistingInstance(command.params.instance_id, {
               restoreRef: command.params.restore_ref,
@@ -321,6 +326,18 @@ export function createMagicHatRuntime(options = {}) {
         return;
       }
       await hostControlService.sendFollowUp(req.params.pid, message);
+      res.status(202).json({ status: "queued" });
+    }),
+  );
+
+  app.post(
+    "/v1/instances/:pid/trust",
+    asyncRoute(async (req, res) => {
+      if (typeof req.body?.approved !== "boolean") {
+        res.status(400).json({ error: "bad_request" });
+        return;
+      }
+      await hostControlService.answerTrustPrompt(req.params.pid, req.body.approved);
       res.status(202).json({ status: "queued" });
     }),
   );

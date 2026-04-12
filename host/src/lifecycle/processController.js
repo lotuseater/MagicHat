@@ -4,6 +4,13 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveMacBundleTarget(command) {
+  if (!command || !command.endsWith(".app")) {
+    return null;
+  }
+  return command;
+}
+
 export class ProcessController {
   constructor(options = {}) {
     this.platform = options.platform || process.platform;
@@ -88,9 +95,25 @@ export class ProcessController {
       throw new Error("launch_command_not_configured");
     }
 
-    this.spawnImpl(launchConfig.command, launchConfig.args || [], {
+    let command = launchConfig.command;
+    let args = launchConfig.args || [];
+    if (this.platform === "darwin") {
+      const bundlePath = resolveMacBundleTarget(launchConfig.command);
+      if (bundlePath) {
+        command = "open";
+        args = ["-n", "-a", bundlePath, ...(args.length > 0 ? ["--args", ...args] : [])];
+      }
+    }
+
+    const env = {
+      ...process.env,
+      ...(launchConfig.env || {}),
+    };
+
+    this.spawnImpl(command, args, {
       cwd: launchConfig.cwd,
-      detached: true,
+      detached: this.platform === "darwin" ? false : true,
+      env,
       stdio: "ignore",
       windowsHide: true,
     }).unref();

@@ -61,6 +61,17 @@ export function readHostConfig(env = process.env) {
       args: parseArgs(env.MAGICHAT_TEAM_APP_ARGS || ""),
       cwd: env.MAGICHAT_TEAM_APP_CWD || process.cwd(),
       waitMs: parsePositiveInt(env.MAGICHAT_LAUNCH_WAIT_MS, 15000),
+      automationPrefixBase:
+        env.MAGICHAT_TEAM_APP_AUTOMATION_PREFIX_BASE || "magichat_team_app",
+      automationTempRoot:
+        env.MAGICHAT_TEAM_APP_AUTOMATION_TEMP_ROOT ||
+        path.join(tempRoot, "wizard_team_app", "magichat", "transient"),
+      runArtifactRoot:
+        env.MAGICHAT_TEAM_APP_RUN_ROOT ||
+        path.join(path.dirname(statePath), "team_app_runs"),
+      noActivate: env.MAGICHAT_TEAM_APP_NO_ACTIVATE !== "0",
+      headlessPrompts: env.MAGICHAT_TEAM_APP_HEADLESS_PROMPTS !== "0",
+      keepAutomationArtifacts: env.MAGICHAT_TEAM_APP_KEEP_AUTOMATION_ARTIFACTS !== "0",
     },
     allowNonWindows: env.MAGICHAT_ALLOW_NON_WINDOWS === "1",
     remote: {

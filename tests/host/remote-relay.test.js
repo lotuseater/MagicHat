@@ -282,6 +282,7 @@ describe("remote relay integration", () => {
     expect(sendCommand).toHaveBeenCalledWith(
       expect.objectContaining({ pid: 999 }),
       expect.objectContaining({ cmd: "restore_session", path: "C:/runs/session-alpha/session_restore.json" }),
+      expect.objectContaining({ requireOk: true }),
     );
 
     const prompt = await requestJson(
@@ -296,6 +297,22 @@ describe("remote relay integration", () => {
     expect(sendCommand).toHaveBeenCalledWith(
       expect.objectContaining({ pid: 412 }),
       expect.objectContaining({ cmd: "submit_initial_prompt", prompt: "Continue task" }),
+      expect.objectContaining({ requireOk: true }),
+    );
+
+    const trust = await requestJson(
+      "POST",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${registration.body.host_id}/instances/wizard_team_app_101_1000/trust`,
+      {
+        token: accessToken,
+        body: { approved: true },
+      },
+    );
+    expect(trust.status).toBe(202);
+    expect(sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ pid: 412 }),
+      expect.objectContaining({ cmd: "answer_trust_prompt", approved: true }),
+      expect.objectContaining({ requireOk: true }),
     );
 
     const refreshed = await requestJson("POST", `http://127.0.0.1:${relayPort}/v2/mobile/session/refresh`, {
