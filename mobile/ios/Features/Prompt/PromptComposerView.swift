@@ -10,9 +10,23 @@ public struct PromptComposerView: View {
     }
 
     public var body: some View {
+        let hasActiveInstance = store.activeInstanceID != nil
+
         VStack(alignment: .leading, spacing: 12) {
             Text("Prompt + Follow-up")
                 .font(.title3.bold())
+
+            HostContextCard(
+                host: store.pairedHost,
+                presence: store.activeHostPresence,
+                activeInstanceID: store.activeInstanceID
+            )
+
+            if hasActiveInstance == false {
+                Text("Pick or launch an instance first. Prompts and follow-ups are sent to the currently active Team App instance.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Prompt")
@@ -30,7 +44,7 @@ public struct PromptComposerView: View {
                     Task { await store.submitPrompt(payload) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasActiveInstance == false || store.isPerformingRemoteAction)
 
                 if let receipt = store.latestPromptReceipt {
                     Text("Prompt request: \(receipt.requestID) @ \(receipt.acceptedAt.formatted(date: .omitted, time: .standard))")
@@ -57,7 +71,7 @@ public struct PromptComposerView: View {
                     Task { await store.submitFollowUp(payload) }
                 }
                 .buttonStyle(.bordered)
-                .disabled(followUpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(followUpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasActiveInstance == false || store.isPerformingRemoteAction)
 
                 if let receipt = store.latestFollowUpReceipt {
                     Text("Follow-up request: \(receipt.requestID) @ \(receipt.acceptedAt.formatted(date: .omitted, time: .standard))")

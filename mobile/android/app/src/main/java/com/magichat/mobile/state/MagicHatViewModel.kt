@@ -36,6 +36,7 @@ data class MagicHatUiState(
     val discoveredHosts: List<BeaconHost> = emptyList(),
     val pairedHosts: List<PairedHostRecord> = emptyList(),
     val activeHostId: String? = null,
+    val activeHost: PairedHostRecord? = null,
     val activeHostPresence: String? = null,
     val instances: List<TeamAppInstance> = emptyList(),
     val knownRestoreRefs: List<KnownRestoreRef> = emptyList(),
@@ -62,6 +63,7 @@ class MagicHatViewModel(
                     state.copy(
                         pairedHosts = pairing.pairedHosts,
                         activeHostId = pairing.activeHostId,
+                        activeHost = activeRecord,
                         activeHostPresence = activeRecord?.lastKnownHostPresence,
                     )
                 }
@@ -162,7 +164,16 @@ class MagicHatViewModel(
     fun forgetHost(hostId: String) {
         launchAction {
             repository.removeHost(hostId)
-            _uiState.update { it.copy(instances = emptyList(), knownRestoreRefs = emptyList(), selectedDetail = null) }
+            _uiState.update {
+                it.copy(
+                    instances = emptyList(),
+                    knownRestoreRefs = emptyList(),
+                    selectedInstanceId = null,
+                    selectedDetail = null,
+                    streamEvents = emptyList(),
+                    streamStatus = "idle",
+                )
+            }
         }
     }
 

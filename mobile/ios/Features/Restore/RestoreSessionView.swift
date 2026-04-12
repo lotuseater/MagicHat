@@ -10,9 +10,17 @@ public struct RestoreSessionView: View {
     }
 
     public var body: some View {
+        let hasPairedHost = store.pairedHost != nil
+
         VStack(alignment: .leading, spacing: 12) {
             Text("Restore Session")
                 .font(.title3.bold())
+
+            HostContextCard(
+                host: store.pairedHost,
+                presence: store.activeHostPresence,
+                activeInstanceID: store.activeInstanceID
+            )
 
             TextField("Restore ref or Team App session ID", text: $sessionID)
                 .textFieldStyle(.roundedBorder)
@@ -20,6 +28,13 @@ public struct RestoreSessionView: View {
                 .textInputAutocapitalization(.never)
 #endif
                 .disableAutocorrection(true)
+                .disabled(hasPairedHost == false || store.isPerformingRemoteAction)
+
+            if hasPairedHost == false {
+                Text("Pair with a Team App host first so this screen has a safe place to restore work into.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
 
             if store.knownRestoreRefs.isEmpty == false {
                 Text("Known Restore Refs")
@@ -54,7 +69,7 @@ public struct RestoreSessionView: View {
                 Task { await store.restoreSession(sessionID: targetSession) }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasPairedHost == false || store.isPerformingRemoteAction)
 
             Toggle("Monitor progress periodically", isOn: $monitorEnabled)
                 .onChange(of: monitorEnabled) { _, enabled in

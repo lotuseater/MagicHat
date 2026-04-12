@@ -18,7 +18,14 @@ public struct StatusPanelView: View {
                     Task { await store.refreshStatus() }
                 }
                 .buttonStyle(.bordered)
+                .disabled(store.activeInstanceID == nil || store.isPerformingRemoteAction)
             }
+
+            HostContextCard(
+                host: store.pairedHost,
+                presence: store.activeHostPresence,
+                activeInstanceID: store.activeInstanceID
+            )
 
             if let snapshot = store.statusSnapshot {
                 if snapshot.trustStatus == "prompt_required" {
@@ -37,11 +44,13 @@ public struct StatusPanelView: View {
                                 Task { await store.answerTrustPrompt(true) }
                             }
                             .buttonStyle(.borderedProminent)
+                            .disabled(store.isPerformingRemoteAction)
 
                             Button("Deny") {
                                 Task { await store.answerTrustPrompt(false) }
                             }
                             .buttonStyle(.bordered)
+                            .disabled(store.isPerformingRemoteAction)
                         }
                     }
                     .padding(12)

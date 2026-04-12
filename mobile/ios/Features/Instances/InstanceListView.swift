@@ -8,32 +8,43 @@ public struct InstanceListView: View {
     }
 
     public var body: some View {
+        let hasPairedHost = store.pairedHost != nil
+
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Team App Instances")
                     .font(.title3.bold())
                 Spacer()
-                if let presence = store.activeHostPresence {
-                    Text(presence.capitalized)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 Button("Refresh") {
                     Task { await store.reloadInstances() }
                 }
                 .buttonStyle(.bordered)
+                .disabled(hasPairedHost == false || store.isPerformingRemoteAction)
 
                 Button("Open New") {
                     Task { await store.launchInstance() }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(hasPairedHost == false || store.isPerformingRemoteAction)
             }
 
-            if store.instances.isEmpty {
+            HostContextCard(
+                host: store.pairedHost,
+                presence: store.activeHostPresence,
+                activeInstanceID: store.activeInstanceID
+            )
+
+            if hasPairedHost == false {
+                ContentUnavailableView(
+                    "No Host Selected",
+                    systemImage: "desktopcomputer",
+                    description: Text("Pair with a Team App host first, then this tab can launch and manage instances.")
+                )
+            } else if store.instances.isEmpty {
                 ContentUnavailableView(
                     "No Open Instances",
                     systemImage: "rectangle.stack.badge.plus",
-                    description: Text("Pair with a host and launch a Team App instance from here.")
+                    description: Text("Connected to the current host, but there are no open Team App instances yet.")
                 )
             } else {
                 List(store.instances) { instance in
@@ -70,7 +81,7 @@ public struct InstanceListView: View {
                             Task { await store.switchInstance(instance.id) }
                         }
                         .buttonStyle(.bordered)
-                        .disabled(store.activeInstanceID == instance.id)
+                        .disabled(store.activeInstanceID == instance.id || store.isPerformingRemoteAction)
 
                         Button(role: .destructive) {
                             Task { await store.closeInstance(instance.id) }
@@ -78,6 +89,7 @@ public struct InstanceListView: View {
                             Label("Close", systemImage: "xmark.circle")
                         }
                         .buttonStyle(.bordered)
+                        .disabled(store.isPerformingRemoteAction)
                     }
                     .padding(.vertical, 4)
                 }

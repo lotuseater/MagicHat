@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.state.MagicHatUiState
+import com.magichat.mobile.ui.components.HostContextCard
 
 @Composable
 fun InstanceDetailScreen(
@@ -28,6 +29,8 @@ fun InstanceDetailScreen(
     onTrustDenied: () -> Unit,
 ) {
     val detail = state.selectedDetail
+    val canSendPrompt = state.selectedInstanceId != null && state.promptInput.isNotBlank() && state.isLoading.not()
+    val canSendFollowUp = state.selectedInstanceId != null && state.followUpInput.isNotBlank() && state.isLoading.not()
 
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -37,6 +40,11 @@ fun InstanceDetailScreen(
     ) {
         Text("Instance Detail", style = MaterialTheme.typography.titleLarge)
         Text("Stream: ${state.streamStatus}")
+        HostContextCard(
+            host = state.activeHost,
+            presence = state.activeHostPresence,
+            activeInstanceId = state.selectedInstanceId,
+        )
 
         if (detail != null) {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -78,15 +86,20 @@ fun InstanceDetailScreen(
                             "Approve the project on this phone so the task can keep moving.",
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        Button(onClick = onTrustApproved) {
+                        Button(onClick = onTrustApproved, enabled = state.isLoading.not()) {
                             Text("Trust Project")
                         }
-                        Button(onClick = onTrustDenied) {
+                        Button(onClick = onTrustDenied, enabled = state.isLoading.not()) {
                             Text("Deny")
                         }
                     }
                 }
             }
+        } else {
+            Text(
+                "Pick an instance from the Instances screen before sending prompts or follow-ups.",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
 
         OutlinedTextField(
@@ -94,8 +107,9 @@ fun InstanceDetailScreen(
             onValueChange = onPromptChanged,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Initial prompt") },
+            enabled = state.selectedInstanceId != null && state.isLoading.not(),
         )
-        Button(onClick = onSendPrompt) {
+        Button(onClick = onSendPrompt, enabled = canSendPrompt) {
             Text("Send Prompt")
         }
 
@@ -104,8 +118,9 @@ fun InstanceDetailScreen(
             onValueChange = onFollowUpChanged,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Follow-up") },
+            enabled = state.selectedInstanceId != null && state.isLoading.not(),
         )
-        Button(onClick = onSendFollowUp) {
+        Button(onClick = onSendFollowUp, enabled = canSendFollowUp) {
             Text("Send Follow-up")
         }
 

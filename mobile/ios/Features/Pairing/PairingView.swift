@@ -20,14 +20,7 @@ public struct PairingView: View {
                     .foregroundStyle(store.pairingState == .paired ? .green : .secondary)
             }
 
-            if let paired = store.pairedHost {
-                Text("Connected to: \(paired.displayName)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text("Mode: \(paired.resolvedConnectionMode.rawValue)\(store.activeHostPresence.map { " • \($0)" } ?? "")")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            HostContextCard(host: store.pairedHost, presence: store.activeHostPresence)
 
             TextField("magichat://pair?... or magichat://host:port?psk=...", text: $pairingURI)
 #if os(iOS)
@@ -44,36 +37,43 @@ public struct PairingView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(store.pairingState == .pairing)
+            .disabled(store.pairingState == .pairing || pairingURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
             Button("Discover Team App Hosts") {
                 Task { await store.discoverHosts() }
             }
             .buttonStyle(.bordered)
+            .disabled(store.pairingState == .pairing)
 
-            List(store.discoveredHosts) { host in
-                Button {
-                    selectedHostID = host.hostID
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(host.displayName)
-                                .font(.headline)
-                            Text(host.baseURL)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if selectedHostID == host.hostID {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+            if store.discoveredHosts.isEmpty {
+                Text("Discover a LAN Team App host or paste a remote pairing URI to get started.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                List(store.discoveredHosts) { host in
+                    Button {
+                        selectedHostID = host.hostID
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(host.displayName)
+                                    .font(.headline)
+                                Text(host.baseURL)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if selectedHostID == host.hostID {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
                         }
                     }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .listStyle(.plain)
+                .frame(minHeight: 120)
             }
-            .listStyle(.plain)
-            .frame(minHeight: 120)
 
             TextField("Pairing PIN (optional)", text: $pin)
 #if os(iOS)
@@ -88,7 +88,7 @@ public struct PairingView: View {
                 }
             }
             .buttonStyle(.bordered)
-            .disabled(store.pairingState == .pairing)
+            .disabled(store.pairingState == .pairing || store.discoveredHosts.isEmpty)
 
             Text("If no host is selected, pairing falls back to the first reachable Team App beacon.")
                 .font(.footnote)

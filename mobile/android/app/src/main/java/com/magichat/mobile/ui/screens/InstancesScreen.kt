@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.magichat.mobile.model.KnownRestoreRef
 import com.magichat.mobile.model.TeamAppInstance
 import com.magichat.mobile.state.MagicHatUiState
+import com.magichat.mobile.ui.components.HostContextCard
 
 @Composable
 fun InstancesScreen(
@@ -31,56 +32,105 @@ fun InstancesScreen(
     onPickRestoreRef: (String) -> Unit,
     onRestoreSession: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Team App Instances", style = MaterialTheme.typography.titleLarge)
-        Text(
-            text = "Active host: ${state.activeHostId ?: "none"}${state.activeHostPresence?.let { " • $it" } ?: ""}",
-            style = MaterialTheme.typography.bodyMedium,
-        )
+    val hasActiveHost = state.activeHost != null
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onRefresh) {
-                Text("Refresh")
-            }
-            Button(onClick = onLaunchInstance) {
-                Text("Launch New")
-            }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text("Team App Instances", style = MaterialTheme.typography.titleLarge)
         }
 
-        OutlinedTextField(
-            value = state.launchTitleInput,
-            onValueChange = onLaunchTitleChanged,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("New Instance Title") },
-            singleLine = true,
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = state.restoreSessionInput,
-                onValueChange = onRestoreSessionChanged,
-                modifier = Modifier.weight(1f),
-                label = { Text("Restore Ref / Session") },
-                singleLine = true,
+        item {
+            HostContextCard(
+                host = state.activeHost,
+                presence = state.activeHostPresence,
+                activeInstanceId = state.selectedInstanceId,
             )
-            Button(onClick = onRestoreSession) {
-                Text("Restore")
-            }
         }
 
-        if (state.knownRestoreRefs.isNotEmpty()) {
-            Text("Known Restore Refs", style = MaterialTheme.typography.titleMedium)
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.knownRestoreRefs, key = { it.restoreRef }) { restoreRef ->
-                    RestoreRefRow(restoreRef = restoreRef, onPick = { onPickRestoreRef(restoreRef.restoreRef) })
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onRefresh, enabled = hasActiveHost && state.isLoading.not()) {
+                    Text("Refresh")
+                }
+                Button(onClick = onLaunchInstance, enabled = hasActiveHost && state.isLoading.not()) {
+                    Text("Launch New")
                 }
             }
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            OutlinedTextField(
+                value = state.launchTitleInput,
+                onValueChange = onLaunchTitleChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("New Instance Title") },
+                singleLine = true,
+                enabled = hasActiveHost && state.isLoading.not(),
+            )
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = state.restoreSessionInput,
+                    onValueChange = onRestoreSessionChanged,
+                    modifier = Modifier.weight(1f),
+                    label = { Text("Restore Ref / Session") },
+                    singleLine = true,
+                    enabled = hasActiveHost && state.isLoading.not(),
+                )
+                Button(
+                    onClick = onRestoreSession,
+                    enabled = hasActiveHost && state.restoreSessionInput.isNotBlank() && state.isLoading.not(),
+                ) {
+                    Text("Restore")
+                }
+            }
+        }
+
+        if (hasActiveHost.not()) {
+            item {
+                Text(
+                    "Select a paired host on the PCs screen first. Launch, restore, and instance refresh all depend on that host context.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
+        if (state.knownRestoreRefs.isNotEmpty()) {
+            item {
+                Text("Known Restore Refs", style = MaterialTheme.typography.titleMedium)
+            }
+            items(state.knownRestoreRefs, key = { it.restoreRef }) { restoreRef ->
+                RestoreRefRow(
+                    restoreRef = restoreRef,
+                    enabled = hasActiveHost && state.isLoading.not(),
+                    onPick = { onPickRestoreRef(restoreRef.restoreRef) },
+                )
+            }
+        }
+
+        item {
+            Text("Open Instances", style = MaterialTheme.typography.titleMedium)
+        }
+
+        if (state.instances.isEmpty()) {
+            item {
+                Text(
+                    if (hasActiveHost) {
+                        "Connected, but this host does not currently have any open Team App instances."
+                    } else {
+                        "No instances to show yet."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        } else {
             items(state.instances, key = { it.instanceId }) { instance ->
                 InstanceRow(
                     instance = instance,
+                    selected = instance.instanceId == state.selectedInstanceId,
+                    enabled = hasActiveHost && state.isLoading.not(),
                     onOpen = { onOpenInstance(instance.instanceId) },
                     onClose = { onCloseInstance(instance.instanceId) },
                 )
@@ -92,6 +142,7 @@ fun InstancesScreen(
 @Composable
 private fun RestoreRefRow(
     restoreRef: KnownRestoreRef,
+    enabled: Boolean,
     onPick: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -104,7 +155,7 @@ private fun RestoreRefRow(
             restoreRef.observedAt?.takeIf { it.isNotBlank() }?.let {
                 Text("seen: $it")
             }
-            Button(onClick = onPick) {
+            Button(onClick = onPick, enabled = enabled) {
                 Text("Use Restore Ref")
             }
         }
@@ -114,12 +165,17 @@ private fun RestoreRefRow(
 @Composable
 private fun InstanceRow(
     instance: TeamAppInstance,
+    selected: Boolean,
+    enabled: Boolean,
     onOpen: () -> Unit,
     onClose: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(instance.title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (selected) "${instance.title} (Selected)" else instance.title,
+                style = MaterialTheme.typography.titleSmall,
+            )
             Text("${instance.instanceId} • ${instance.health} • active=${instance.active}")
             instance.sessionId?.takeIf { it.isNotBlank() }?.let {
                 Text("session: $it")
@@ -131,10 +187,10 @@ private fun InstanceRow(
                 Text("restore ref: $it")
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onOpen) {
+                Button(onClick = onOpen, enabled = enabled && selected.not()) {
                     Text("Open")
                 }
-                Button(onClick = onClose) {
+                Button(onClick = onClose, enabled = enabled) {
                     Text("Close")
                 }
             }
