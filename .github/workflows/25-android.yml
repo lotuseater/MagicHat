@@ -29,5 +29,5 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Run Android unit tests
-        run: ./scripts/mobile-validation/android_unit_tests.sh
+      - name: Run Android validation
+        run: ./scripts/mobile-validation/android_validate.sh

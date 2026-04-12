@@ -61,9 +61,6 @@ fun InstanceDetailScreen(
                     detail.restoreRef?.takeIf { it.isNotBlank() }?.let {
                         Text("Restore ref: $it")
                     }
-                    detail.restoreStatePath?.takeIf { it.isNotBlank() }?.let {
-                        Text("Restore path: $it")
-                    }
                 }
             }
 

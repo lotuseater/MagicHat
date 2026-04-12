@@ -124,6 +124,7 @@ def build_instance(
 
 
 def render_public_instance(instance: dict[str, Any]) -> dict[str, Any]:
+    restore_ref = render_known_restore_ref(instance)["restore_ref"] if instance.get("restore_state_path") else None
     return {
         "id": instance["instance_id"],
         "contract_version": instance["contract_version"],
@@ -142,6 +143,7 @@ def render_public_instance(instance: dict[str, Any]) -> dict[str, Any]:
         "run_artifact_dir": instance["run_artifact_dir"],
         "run_log_path": instance["run_log_path"],
         "restore_state_path": instance["restore_state_path"],
+        "restore_ref": restore_ref,
         "started_at": instance["started_at"],
         "heartbeat_ts": instance["heartbeat_ts"],
         "last_activity_ts": instance["last_activity_ts"],

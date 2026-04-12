@@ -60,7 +60,7 @@ fun InstancesScreen(
                 value = state.restoreSessionInput,
                 onValueChange = onRestoreSessionChanged,
                 modifier = Modifier.weight(1f),
-                label = { Text("Restore Path / Restore Ref") },
+                label = { Text("Restore Ref / Session") },
                 singleLine = true,
             )
             Button(onClick = onRestoreSession) {
@@ -100,6 +100,9 @@ private fun RestoreRefRow(
             Text(restoreRef.restoreRef)
             restoreRef.sessionId?.takeIf { it.isNotBlank() }?.let {
                 Text("session: $it")
+            }
+            restoreRef.observedAt?.takeIf { it.isNotBlank() }?.let {
+                Text("seen: $it")
             }
             Button(onClick = onPick) {
                 Text("Use Restore Ref")

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: MagicHat Host API
   version: 1.0.0
-  summary: Android-first mobile controller for Team App instances running on one LAN PC.
+  summary: Mobile controller for Team App instances running on one LAN PC.
   description: |
     v1 scope is explicit and fixed:
     - Windows host service only
@@ -127,6 +127,25 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /v1/restore-refs:
+    get:
+      tags: [instances]
+      summary: List host-generated restore refs for known Team App sessions.
+      operationId: listRestoreRefs
+      x-team-app-mapping:
+        source: host-maintained_restore_ref_index
+        input: beacon.restore_state_path
+        note: Raw Team App restore_state_path values stay on the PC; mobile callers use opaque restore_ref selectors.
+      responses:
+        '200':
+          description: Known restore refs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreRefsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /v1/instances/{pid}:
     parameters:
       - $ref: '#/components/parameters/PidParam'
@@ -238,18 +257,52 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/instances/{pid}/trust:
+    parameters:
+      - $ref: '#/components/parameters/PidParam'
+    post:
+      tags: [instances]
+      summary: Answer a Team App trust prompt for the active instance.
+      operationId: answerTrustPrompt
+      x-team-app-mapping:
+        sequence:
+          - cmd: answer_trust_prompt
+            payload:
+              instance_id: $beacon.instance_id
+              approved: $request.approved
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrustPromptRequest'
+      responses:
+        '202':
+          description: Trust response queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AckResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /v1/instances/{pid}/restore:
     parameters:
       - $ref: '#/components/parameters/PidParam'
     post:
       tags: [instances]
-      summary: Restore a Team App session from restore file path.
+      summary: Restore a Team App session from either an opaque restore ref or a raw restore file path.
       operationId: restoreSession
       x-team-app-mapping:
         sequence:
           - cmd: restore_session
             payload:
-              path: $request.restore_state_path
+              path:
+                one_of:
+                  - $request.restore_ref -> host resolves to restore_state_path
+                  - $request.restore_state_path
       requestBody:
         required: true
         content:
@@ -415,6 +468,7 @@ components:
     InstanceRef:
       type: object
       required:
+        - id
         - instance_id
         - pid
         - hwnd
@@ -434,6 +488,8 @@ components:
         - result_summary
         - health
       properties:
+        id:
+          type: string
         instance_id:
           type: string
         pid:
@@ -502,12 +558,17 @@ components:
     LaunchInstanceRequest:
       type: object
       properties:
+        title:
+          type: string
+          minLength: 1
+          description: Optional display title / initial task label for the launched Team App instance.
+        restore_ref:
+          type: string
+          minLength: 1
+          description: Preferred opaque host-generated restore selector for LAN and remote callers.
         restore_state_path:
           type: string
-          description: Optional path passed to Team App as --restore-run.
-        automation_prefix:
-          type: string
-          description: Optional automation prefix override.
+          description: Optional raw Team App restore_state_path fallback for local compatibility/debugging.
         startup_timeout_ms:
           type: integer
           minimum: 100
@@ -532,11 +593,44 @@ components:
 
     RestoreSessionRequest:
       type: object
-      required: [restore_state_path]
+      minProperties: 1
       properties:
+        restore_ref:
+          type: string
+          minLength: 1
         restore_state_path:
           type: string
           minLength: 1
+
+    TrustPromptRequest:
+      type: object
+      required: [approved]
+      properties:
+        approved:
+          type: boolean
+
+    KnownRestoreRef:
+      type: object
+      required: [restore_ref]
+      properties:
+        restore_ref:
+          type: string
+        title:
+          type: string
+        session_id:
+          type: string
+        observed_at:
+          type: string
+          format: date-time
+
+    RestoreRefsResponse:
+      type: object
+      required: [restore_refs]
+      properties:
+        restore_refs:
+          type: array
+          items:
+            $ref: '#/components/schemas/KnownRestoreRef'
 
     AckResponse:
       type: object

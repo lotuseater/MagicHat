@@ -9,6 +9,7 @@ import com.magichat.mobile.model.LaunchInstanceRequest
 import com.magichat.mobile.model.PairRequest
 import com.magichat.mobile.model.PairResponse
 import com.magichat.mobile.model.PromptRequest
+import com.magichat.mobile.model.RestoreRefsResponse
 import com.magichat.mobile.model.SubmissionReceipt
 import com.magichat.mobile.model.TrustRequest
 import retrofit2.http.Body
@@ -31,6 +32,9 @@ interface MagicHatApiService {
 
     @GET("v1/instances")
     suspend fun listInstances(): InstancesResponse
+
+    @GET("v1/restore-refs")
+    suspend fun listRestoreRefs(): RestoreRefsResponse
 
     @GET("v1/instances/{instanceId}")
     suspend fun getInstanceDetail(

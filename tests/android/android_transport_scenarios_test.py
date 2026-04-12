@@ -128,6 +128,37 @@ class AndroidTransportScenariosTest(unittest.TestCase):
         ids = [item["instance_id"] for item in payload["instances"]]
         self.assertIn(restored_instance_id, ids)
 
+    def test_restore_by_opaque_restore_ref(self) -> None:
+        _, token = self.host.pair()
+        auth = {"Authorization": f"Bearer {token}"}
+
+        status, instances = request_json(
+            "GET",
+            f"{self.host.base_url}/v1/instances",
+            headers=auth,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(instances["instances"][0]["restore_ref"])
+
+        status, payload = request_json(
+            "GET",
+            f"{self.host.base_url}/v1/restore-refs",
+            headers=auth,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["restore_refs"])
+        restore_ref = payload["restore_refs"][0]["restore_ref"]
+
+        status, restored = request_json(
+            "POST",
+            f"{self.host.base_url}/v1/instances",
+            body={"restore_ref": restore_ref},
+            headers=auth,
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(restored["result_summary"]["short_text"], "Session restore queued")
+        self.assertTrue(str(restored["session_id"]).startswith("restored-"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

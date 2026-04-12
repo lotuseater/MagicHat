@@ -44,6 +44,39 @@ describe("restore ref routes", () => {
     expect(response.body.restore_refs[0].restore_ref).toMatch(/^restore_/);
   });
 
+  it("includes restore_ref on LAN list and detail payloads", async () => {
+    const ctx = await createRuntime({
+      beaconEntries: [
+        buildBeaconEntry({
+          pid: 412,
+          instance_id: "wizard_team_app_412_4120",
+          session_id: "session-alpha",
+          restore_state_path: "C:/runs/session-alpha/session_restore.json",
+          current_task_state: {
+            phase: "running",
+            task: "Restore Alpha",
+          },
+        }),
+      ],
+      processProbe: vi.fn(() => true),
+      ipcClient: {
+        inspect: vi.fn(async () => ({ status: "ok", snapshot: {} })),
+        sendCommand: vi.fn(async () => ({ status: "ok" })),
+        tailEvents: vi.fn(async () => ({ source: "events", events: [], next_cursor: 0 })),
+      },
+    });
+    contexts.push(ctx);
+
+    const token = await pairDevice(ctx);
+    const listed = await ctx.http.get("/v1/instances", { token });
+    const detail = await ctx.http.get("/v1/instances/wizard_team_app_412_4120", { token });
+
+    expect(listed.status).toBe(200);
+    expect(listed.body.instances[0].restore_ref).toMatch(/^restore_/);
+    expect(detail.status).toBe(200);
+    expect(detail.body.restore_ref).toMatch(/^restore_/);
+  });
+
   it("launches a restored instance by restore_ref without exposing restore paths", async () => {
     const sendCommand = vi.fn(async (_instance, payload) => ({
       status: "ok",

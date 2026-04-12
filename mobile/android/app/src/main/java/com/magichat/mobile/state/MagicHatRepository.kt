@@ -223,14 +223,8 @@ class MagicHatRepository(
                 relayApiFor(context.record).listRestoreRefs(context.record.hostId).restoreRefs
             }
         } else {
-            listInstances().mapNotNull { instance ->
-                instance.restoreStatePath?.takeIf { it.isNotBlank() }?.let {
-                    KnownRestoreRef(
-                        restoreRef = it,
-                        title = instance.title,
-                        sessionId = instance.sessionId,
-                    )
-                }
+            withTransportRetry {
+                lanApiFor(context.record).listRestoreRefs().restoreRefs
             }
         }
     }
@@ -341,21 +335,22 @@ class MagicHatRepository(
 
     override suspend fun restoreSession(restoreSelector: String): InstanceDetail {
         val context = requireActiveContext()
+        val launchRequest = resolveRestoreLaunchRequest(
+            selector = restoreSelector,
+            knownRestoreRefs = listKnownRestoreRefs(),
+            allowRawPathFallback = !isRemote(context.record),
+        )
         val launched = if (isRemote(context.record)) {
             withTransportRetry {
                 relayApiFor(context.record).launchInstance(
                     context.record.hostId,
-                    LaunchInstanceRequest(
-                        restoreRef = restoreSelector,
-                    ),
+                    launchRequest,
                 )
             }
         } else {
             withTransportRetry {
                 lanApiFor(context.record).launchInstance(
-                    LaunchInstanceRequest(
-                        restoreStatePath = restoreSelector,
-                    ),
+                    launchRequest,
                 )
             }
         }

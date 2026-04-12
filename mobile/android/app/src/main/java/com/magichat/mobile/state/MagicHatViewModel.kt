@@ -282,7 +282,7 @@ class MagicHatViewModel(
         launchAction {
             val restoreSelector = _uiState.value.restoreSessionInput
             if (restoreSelector.isBlank()) {
-                error("Restore path or ref is required")
+                error("Restore ref or session is required")
             }
             val detail = repository.restoreSession(restoreSelector)
             val instances = repository.listInstances()

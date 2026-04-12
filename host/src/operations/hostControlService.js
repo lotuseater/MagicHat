@@ -55,7 +55,7 @@ export class HostControlService {
   async listInstances() {
     const instances = await this.beaconStore.listInternalInstances();
     this.remoteAccessState?.rememberRestoreRefsFromInstances(instances);
-    return instances.map((entry) => this.beaconStore.toPublicInstance(entry));
+    return instances.map((entry) => this.toLanInstance(entry));
   }
 
   async listRemoteInstances() {
@@ -77,7 +77,7 @@ export class HostControlService {
       include_terminals: true,
     });
     return {
-      ...this.beaconStore.toPublicInstance(instance),
+      ...this.toLanInstance(instance),
       status: inspect?.status || "error",
       snapshot: inspect?.snapshot || {},
       chat: Array.isArray(inspect?.chat) ? inspect.chat : [],
@@ -128,7 +128,7 @@ export class HostControlService {
       }, { requireOk: true });
     }
 
-    return remoteSafe ? this.toRemoteInstance(launched) : this.beaconStore.toPublicInstance(launched);
+    return remoteSafe ? this.toRemoteInstance(launched) : this.toLanInstance(launched);
   }
 
   async closeInstance(instanceId) {
@@ -226,6 +226,20 @@ export class HostControlService {
       throw error;
     }
     return instance;
+  }
+
+  toLanInstance(instance) {
+    const restoreRef = instance.restore_state_path
+      ? this.remoteAccessState?.rememberRestorePath(instance.restore_state_path, {
+          session_id: instance.session_id,
+          title: preferredTitle(instance),
+        })
+      : null;
+
+    return {
+      ...this.beaconStore.toPublicInstance(instance),
+      restore_ref: restoreRef || null,
+    };
   }
 
   toRemoteInstance(instance) {
