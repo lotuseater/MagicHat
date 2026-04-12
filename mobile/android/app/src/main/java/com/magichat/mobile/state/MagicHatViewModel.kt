@@ -155,8 +155,9 @@ class MagicHatViewModel(
 
     fun selectPairedHost(hostId: String) {
         launchAction {
+            resetInstanceContext()
             repository.setActiveHost(hostId)
-            refreshInstances()
+            loadCurrentHostData()
             _uiState.update { it.copy(screen = MagicHatScreen.INSTANCES) }
         }
     }
@@ -164,29 +165,16 @@ class MagicHatViewModel(
     fun forgetHost(hostId: String) {
         launchAction {
             repository.removeHost(hostId)
-            _uiState.update {
-                it.copy(
-                    instances = emptyList(),
-                    knownRestoreRefs = emptyList(),
-                    selectedInstanceId = null,
-                    selectedDetail = null,
-                    streamEvents = emptyList(),
-                    streamStatus = "idle",
-                )
+            resetInstanceContext()
+            if (repository.activeHost() != null) {
+                loadCurrentHostData()
             }
         }
     }
 
     fun refreshInstances() {
         launchAction {
-            val instances = repository.listInstances()
-            val restoreRefs = repository.listKnownRestoreRefs()
-            _uiState.update {
-                it.copy(
-                    instances = instances,
-                    knownRestoreRefs = restoreRefs,
-                )
-            }
+            loadCurrentHostData()
         }
     }
 
@@ -336,6 +324,58 @@ class MagicHatViewModel(
     override fun onCleared() {
         repository.stopInstanceEvents()
         super.onCleared()
+    }
+
+    private suspend fun loadCurrentHostData() {
+        if (repository.activeHost() == null) {
+            resetInstanceContext()
+            return
+        }
+
+        val instances = repository.listInstances()
+        val restoreRefs = repository.listKnownRestoreRefs()
+        reconcileInstanceContext(instances, restoreRefs)
+    }
+
+    private fun reconcileInstanceContext(
+        instances: List<TeamAppInstance>,
+        restoreRefs: List<KnownRestoreRef>,
+    ) {
+        val selectedInstanceId = _uiState.value.selectedInstanceId
+        val selectionStillExists = selectedInstanceId != null && instances.any { it.instanceId == selectedInstanceId }
+        if (!selectionStillExists) {
+            repository.stopInstanceEvents()
+        }
+        _uiState.update { state ->
+            state.copy(
+                instances = instances,
+                knownRestoreRefs = restoreRefs,
+                selectedInstanceId = if (selectionStillExists) state.selectedInstanceId else null,
+                selectedDetail = if (selectionStillExists) state.selectedDetail else null,
+                streamEvents = if (selectionStillExists) state.streamEvents else emptyList(),
+                streamStatus = if (selectionStillExists) state.streamStatus else "idle",
+                promptInput = if (selectionStillExists) state.promptInput else "",
+                followUpInput = if (selectionStillExists) state.followUpInput else "",
+                restoreSessionInput = if (selectionStillExists) state.restoreSessionInput else "",
+            )
+        }
+    }
+
+    private fun resetInstanceContext() {
+        repository.stopInstanceEvents()
+        _uiState.update {
+            it.copy(
+                instances = emptyList(),
+                knownRestoreRefs = emptyList(),
+                selectedInstanceId = null,
+                selectedDetail = null,
+                streamEvents = emptyList(),
+                streamStatus = "idle",
+                promptInput = "",
+                followUpInput = "",
+                restoreSessionInput = "",
+            )
+        }
     }
 
     private fun launchAction(block: suspend () -> Unit) {

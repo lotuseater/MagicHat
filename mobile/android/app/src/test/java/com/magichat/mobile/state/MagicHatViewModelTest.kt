@@ -90,6 +90,44 @@ class MagicHatViewModelTest {
     }
 
     @Test
+    fun selectPairedHostClearsStaleSelectedInstanceState() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            instancesResult = listOf(instance("remote-1")),
+            restoreRefsResult = listOf(KnownRestoreRef(restoreRef = "restore-remote", title = "Remote Restore")),
+        )
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(
+                pairedHost(hostId = "alpha", displayName = "Office Mac"),
+                pairedHost(hostId = "remote", displayName = "Remote Mac"),
+            ),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.updatePrompt("hello")
+        viewModel.updateFollowUp("follow up")
+        viewModel.updateRestoreSession("restore-alpha")
+        viewModel.openInstance("instance-1")
+        advanceUntilIdle()
+
+        viewModel.selectPairedHost("remote")
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(state.activeHostId).isEqualTo("remote")
+        assertThat(state.selectedInstanceId).isNull()
+        assertThat(state.selectedDetail).isNull()
+        assertThat(state.streamEvents).isEmpty()
+        assertThat(state.streamStatus).isEqualTo("idle")
+        assertThat(state.promptInput).isEmpty()
+        assertThat(state.followUpInput).isEmpty()
+        assertThat(state.restoreSessionInput).isEmpty()
+        assertThat(state.instances.map { it.instanceId }).containsExactly("remote-1")
+        assertThat(repository.stopInstanceEventsCalls).isAtLeast(1)
+    }
+
+    @Test
     fun forgetHostClearsSelectedInstanceState() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository()
         repository.removeHostSideEffect = { removed ->
@@ -125,6 +163,45 @@ class MagicHatViewModelTest {
         assertThat(state.selectedDetail).isNull()
         assertThat(state.streamEvents).isEmpty()
         assertThat(state.streamStatus).isEqualTo("idle")
+    }
+
+    @Test
+    fun forgetHostFallsBackToRemainingHostAndReloadsInstances() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            instancesResult = listOf(instance("fallback-1")),
+            restoreRefsResult = listOf(KnownRestoreRef(restoreRef = "restore-fallback", title = "Fallback Restore")),
+        )
+        repository.removeHostSideEffect = { removed ->
+            repository.pairingStateFlow.update { snapshot ->
+                snapshot.copy(
+                    pairedHosts = snapshot.pairedHosts.filterNot { it.hostId == removed },
+                    activeHostId = "bravo",
+                )
+            }
+        }
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(
+                pairedHost(hostId = "alpha", displayName = "Office Mac"),
+                pairedHost(hostId = "bravo", displayName = "Desk PC"),
+            ),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.openInstance("instance-1")
+        advanceUntilIdle()
+        viewModel.forgetHost("alpha")
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(state.activeHostId).isEqualTo("bravo")
+        assertThat(state.instances.map { it.instanceId }).containsExactly("fallback-1")
+        assertThat(state.knownRestoreRefs.map { it.restoreRef }).containsExactly("restore-fallback")
+        assertThat(state.selectedInstanceId).isNull()
+        assertThat(state.selectedDetail).isNull()
+        assertThat(repository.listInstancesCalls).isEqualTo(1)
+        assertThat(repository.listRestoreRefsCalls).isEqualTo(1)
     }
 
     @Test
@@ -197,6 +274,7 @@ private class FakeMagicHatRepository(
     var listInstancesCalls = 0
     var listRestoreRefsCalls = 0
     var refreshActiveHostCalls = 0
+    var stopInstanceEventsCalls = 0
 
     override val pairingState: Flow<PairingSnapshot> = pairingStateFlow
 
@@ -208,6 +286,11 @@ private class FakeMagicHatRepository(
 
     override suspend fun pairRemote(pairUri: String, deviceName: String): PairedHostRecord {
         error("Not used in this test")
+    }
+
+    override suspend fun activeHost(): PairedHostRecord? {
+        val snapshot = pairingStateFlow.value
+        return snapshot.pairedHosts.firstOrNull { it.hostId == snapshot.activeHostId }
     }
 
     override suspend fun setActiveHost(hostId: String) {
@@ -283,7 +366,9 @@ private class FakeMagicHatRepository(
         onState("connected")
     }
 
-    override fun stopInstanceEvents() = Unit
+    override fun stopInstanceEvents() {
+        stopInstanceEventsCalls += 1
+    }
 
     private fun instance(id: String): TeamAppInstance {
         return TeamAppInstance(

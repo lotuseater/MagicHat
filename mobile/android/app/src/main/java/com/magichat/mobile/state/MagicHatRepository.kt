@@ -36,6 +36,7 @@ interface MagicHatRepositoryContract {
     suspend fun discoverHosts(baseUrl: String): List<BeaconHost>
     suspend fun pairHost(baseUrl: String, hostId: String, pairingCode: String, deviceName: String): PairedHostRecord
     suspend fun pairRemote(pairUri: String, deviceName: String): PairedHostRecord
+    suspend fun activeHost(): PairedHostRecord?
     suspend fun setActiveHost(hostId: String)
     suspend fun removeHost(hostId: String)
     suspend fun refreshActiveHost(): PairedHostRecord?
@@ -189,6 +190,12 @@ class MagicHatRepository(
         )
         pairingStore.upsert(record)
         return record
+    }
+
+    override suspend fun activeHost(): PairedHostRecord? {
+        val snapshot = pairingStore.readSnapshot()
+        val activeHostId = snapshot.activeHostId ?: return null
+        return snapshot.pairedHosts.firstOrNull { it.hostId == activeHostId }
     }
 
     override suspend fun setActiveHost(hostId: String) {
