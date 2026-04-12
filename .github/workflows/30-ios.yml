@@ -1,0 +1,54 @@
+name: 30-ios
+
+on:
+  push:
+    paths:
+      - "mobile/ios/**"
+      - "tests/ios-sim/**"
+      - "tests/integration/mobile_host/**"
+      - "scripts/mobile-validation/**"
+      - ".github/workflows/30-ios.yml"
+  pull_request:
+    paths:
+      - "mobile/ios/**"
+      - "tests/ios-sim/**"
+      - "tests/integration/mobile_host/**"
+      - "scripts/mobile-validation/**"
+      - ".github/workflows/30-ios.yml"
+
+jobs:
+  ios-tests:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Typecheck iOS sources
+        run: ./scripts/mobile-validation/ios_typecheck.sh
+
+      - name: Run iOS core package tests
+        run: ./scripts/mobile-validation/ios_core_tests.sh
+
+      - name: Start mock host
+        run: |
+          python3 tests/integration/mobile_host/mock_host_server.py --port 18787 > /tmp/magichat-ios-mock-host.log 2>&1 &
+          echo $! > /tmp/magichat-ios-mock-host.pid
+          for _ in {1..20}; do
+            if curl -fsS http://127.0.0.1:18787/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/magichat-ios-mock-host.log
+          exit 1
+
+      - name: Run iOS smoke package
+        run: MAGICHAT_HOST_URL=http://127.0.0.1:18787 ./scripts/mobile-validation/ios_smoke.sh
+
+      - name: Stop mock host
+        if: always()
+        run: |
+          if [[ -f /tmp/magichat-ios-mock-host.pid ]]; then
+            kill "$(cat /tmp/magichat-ios-mock-host.pid)" || true
+          fi

@@ -114,6 +114,12 @@ iOS source typecheck:
 ./scripts/mobile-validation/ios_typecheck.sh
 ```
 
+iOS core package tests:
+
+```bash
+./scripts/mobile-validation/ios_core_tests.sh
+```
+
 ## Notes
 
 - The Android client currently assumes a manually entered base URL for the paired PC host.

@@ -8,11 +8,15 @@ internal struct RemoteDeviceIdentity: Sendable {
 }
 
 internal actor DeviceKeyStore {
-    private static let service = "com.magichat.remote"
+    private let service: String
     private static let publicAccount = "device_public_key"
     private static let privateAccount = "device_private_key"
     private static let deviceIDAccount = "device_id"
     private static let ed25519SpkiPrefix = Data([0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00])
+
+    init(service: String = "com.magichat.remote") {
+        self.service = service
+    }
 
     func getOrCreate() throws -> RemoteDeviceIdentity {
         if let publicKey = readData(account: Self.publicAccount),
@@ -59,7 +63,7 @@ internal actor DeviceKeyStore {
     private func readData(account: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -76,7 +80,7 @@ internal actor DeviceKeyStore {
     private func writeData(_ data: Data, account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
 
