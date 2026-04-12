@@ -106,6 +106,8 @@ fun MagicHatApp(
                             onFollowUpChanged = viewModel::updateFollowUp,
                             onSendPrompt = viewModel::sendPrompt,
                             onSendFollowUp = viewModel::sendFollowUp,
+                            onTrustApproved = { viewModel.answerTrustPrompt(true) },
+                            onTrustDenied = { viewModel.answerTrustPrompt(false) },
                         )
                     }
                 }

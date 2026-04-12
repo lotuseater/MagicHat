@@ -24,6 +24,8 @@ fun InstanceDetailScreen(
     onFollowUpChanged: (String) -> Unit,
     onSendPrompt: () -> Unit,
     onSendFollowUp: () -> Unit,
+    onTrustApproved: () -> Unit,
+    onTrustDenied: () -> Unit,
 ) {
     val detail = state.selectedDetail
 
@@ -43,6 +45,9 @@ fun InstanceDetailScreen(
                     Text("ID: ${detail.instance.instanceId}")
                     Text("Health: ${detail.instance.health}")
                     Text("Status: ${detail.status}")
+                    detail.trustStatus?.takeIf { it.isNotBlank() }?.let {
+                        Text("Trust: $it")
+                    }
                     detail.instance.sessionId?.takeIf { it.isNotBlank() }?.let {
                         Text("Session: $it")
                     }
@@ -58,6 +63,30 @@ fun InstanceDetailScreen(
                     }
                     detail.restoreStatePath?.takeIf { it.isNotBlank() }?.let {
                         Text("Restore path: $it")
+                    }
+                }
+            }
+
+            if (detail.trustStatus == "prompt_required") {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Team App is waiting for project trust", style = MaterialTheme.typography.titleSmall)
+                        detail.pendingTrustProject?.takeIf { it.isNotBlank() }?.let {
+                            Text(it)
+                        }
+                        Text(
+                            "Approve the project on this phone so the task can keep moving.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Button(onClick = onTrustApproved) {
+                            Text("Trust Project")
+                        }
+                        Button(onClick = onTrustDenied) {
+                            Text("Deny")
+                        }
                     }
                 }
             }

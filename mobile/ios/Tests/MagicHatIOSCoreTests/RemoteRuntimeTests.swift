@@ -36,6 +36,12 @@ private actor TestRelayClient: RelayAPIClient {
         let restoreRef: String?
     }
 
+    struct TrustCall: Equatable {
+        let hostID: String
+        let instanceID: String
+        let approved: Bool
+    }
+
     var claimStatusResponses: [RemoteClaimStatus] = []
     var listedRestoreRefs: [KnownRestoreRef] = []
     var listedHosts: [RemoteHostStatus] = []
@@ -45,6 +51,7 @@ private actor TestRelayClient: RelayAPIClient {
     var nextRefresh: RemoteSessionRefresh
     var launches: [LaunchCall] = []
     var refreshRequests: [String] = []
+    var trustCalls: [TrustCall] = []
 
     init() {
         nextRegistration = RemoteDeviceRegistration(
@@ -91,6 +98,10 @@ private actor TestRelayClient: RelayAPIClient {
 
     func recordedRefreshRequests() -> [String] {
         refreshRequests
+    }
+
+    func recordedTrustCalls() -> [TrustCall] {
+        trustCalls
     }
 
     func claimBootstrap(bootstrapToken: String, deviceName: String, devicePublicKey: String, platform: String) async throws -> RemotePairClaim {
@@ -185,6 +196,38 @@ private actor TestRelayClient: RelayAPIClient {
         XCTAssertEqual(hostID, "host_remote_1")
         XCTAssertFalse(instanceID.isEmpty)
         XCTAssertFalse(message.isEmpty)
+    }
+
+    func answerTrustPrompt(hostID: String, instanceID: String, approved: Bool) async throws {
+        XCTAssertEqual(hostID, "host_remote_1")
+        XCTAssertFalse(instanceID.isEmpty)
+        trustCalls.append(TrustCall(hostID: hostID, instanceID: instanceID, approved: approved))
+
+        guard let current = detailByInstanceID[instanceID] else {
+            throw HostAPIError.http(statusCode: 404, message: "missing detail")
+        }
+
+        let nextTrustStatus = approved ? "trusted" : "denied"
+        detailByInstanceID[instanceID] = RemoteInstanceWire(
+            id: current.id,
+            instanceID: current.instanceID,
+            title: current.title,
+            active: current.active,
+            health: current.health,
+            phase: current.phase,
+            sessionID: current.sessionID,
+            startedAt: current.startedAt,
+            resultSummary: current.resultSummary,
+            restoreRef: current.restoreRef,
+            status: current.status,
+            snapshot: RemoteSnapshot(
+                phase: current.snapshot?.phase,
+                resultSummary: current.snapshot?.resultSummary,
+                trustStatus: nextTrustStatus,
+                pendingTrustProject: approved ? nil : current.snapshot?.pendingTrustProject
+            ),
+            summaryText: current.summaryText
+        )
     }
 
     func listKnownRestoreRefs(hostID: String) async throws -> [KnownRestoreRef] {
@@ -363,5 +406,93 @@ final class RemoteRuntimeTests: XCTestCase {
         let snapshot = await persistence.loadSessionSnapshot()
         XCTAssertEqual(snapshot?.activeInstanceID, "instance_remote_restore")
         XCTAssertEqual(snapshot?.activeRestoreRef, "restore_remote_alpha")
+    }
+
+    func testRemoteTrustPromptApprovalUpdatesStatus() async throws {
+        let persistence = MemoryRuntimePersistence()
+        let relay = TestRelayClient()
+        let now = Date()
+
+        let pairedHost = HostBeacon(
+            hostID: "host_remote_1",
+            displayName: "Office Relay Host",
+            baseURL: "http://127.0.0.1:18795/",
+            apiVersion: "v2",
+            capabilities: ["instances", "prompt", "follow-up", "restore", "trust"],
+            lastSeenAt: now,
+            connectionMode: .remoteRelay,
+            sessionToken: "access_current",
+            refreshToken: "refresh_current",
+            accessTokenExpiresAt: now.addingTimeInterval(600),
+            refreshTokenExpiresAt: now.addingTimeInterval(3600),
+            deviceID: "device_remote_1",
+            certificatePinsetVersion: "dev-insecure",
+            lastKnownHostPresence: "online"
+        )
+        try await persistence.savePairedHost(pairedHost)
+        try await persistence.saveSessionSnapshot(
+            SessionSnapshot(
+                host: pairedHost,
+                activeInstanceID: "instance_remote_blocked",
+                activeSessionID: "session_remote_blocked",
+                activeRestoreRef: "restore_remote_blocked",
+                updatedAt: now
+            )
+        )
+
+        await relay.setDetailByInstanceID([
+            "instance_remote_blocked": RemoteInstanceWire(
+                id: "instance_remote_blocked",
+                instanceID: "instance_remote_blocked",
+                title: "Blocked Remote Task",
+                active: true,
+                health: "blocked",
+                phase: "blocked",
+                sessionID: "session_remote_blocked",
+                startedAt: Int64(Date().timeIntervalSince1970 * 1000),
+                resultSummary: RemoteResultSummary(shortText: "Waiting for trust"),
+                restoreRef: "restore_remote_blocked",
+                status: "blocked",
+                snapshot: RemoteSnapshot(
+                    phase: "blocked",
+                    resultSummary: RemoteResultSummary(shortText: "Waiting for trust"),
+                    trustStatus: "prompt_required",
+                    pendingTrustProject: "/Users/oleh/Documents/GitHub/MagicHat"
+                ),
+                summaryText: "Waiting for trust"
+            )
+        ])
+
+        let service = TeamAppRuntimeService(
+            beaconDiscovery: EmptyBeaconDiscovery(),
+            persistence: persistence,
+            deviceKeyStore: DeviceKeyStore(service: "com.magichat.remote.tests.\(UUID().uuidString)"),
+            makeClient: { _ in
+                XCTFail("LAN client should not be used for remote trust test")
+                return URLSessionHostAPIClient(baseURL: URL(string: "http://127.0.0.1:1")!)
+            },
+            makeRelayClient: { _, _, _ in
+                relay
+            }
+        )
+
+        let before = try await service.fetchStatus(for: "instance_remote_blocked")
+        XCTAssertEqual(before.trustStatus, "prompt_required")
+        XCTAssertEqual(before.pendingTrustProject, "/Users/oleh/Documents/GitHub/MagicHat")
+
+        try await service.answerTrustPrompt(true, for: "instance_remote_blocked")
+
+        let after = try await service.fetchStatus(for: "instance_remote_blocked")
+        XCTAssertEqual(after.trustStatus, "trusted")
+        XCTAssertNil(after.pendingTrustProject)
+
+        let trustCalls = await relay.recordedTrustCalls()
+        XCTAssertEqual(trustCalls, [
+            TestRelayClient.TrustCall(
+                hostID: "host_remote_1",
+                instanceID: "instance_remote_blocked",
+                approved: true
+            )
+        ])
     }
 }

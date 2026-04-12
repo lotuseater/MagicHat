@@ -15,6 +15,7 @@ public protocol TeamAppRuntimeProviding: AnyObject {
     func fetchStatus(for instanceID: String) async throws -> TeamAppStatus
     func sendPrompt(_ text: String, to instanceID: String) async throws -> PromptAck
     func sendFollowUp(_ text: String, threadID: String?, to instanceID: String) async throws -> PromptAck
+    func answerTrustPrompt(_ approved: Bool, for instanceID: String) async throws
 
     func restoreSession(_ sessionID: String) async throws -> SessionRestoreResult
     func restoreLastSession() async throws -> SessionSnapshot?

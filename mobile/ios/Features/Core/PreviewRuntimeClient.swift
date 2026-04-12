@@ -170,6 +170,24 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
         return PromptAck(requestID: UUID().uuidString, acceptedAt: Date())
     }
 
+    public func answerTrustPrompt(_ approved: Bool, for instanceID: String) async throws {
+        guard approved else {
+            return
+        }
+        try updateInstance(instanceID: instanceID) { current in
+            TeamAppInstance(
+                id: current.id,
+                title: current.title,
+                state: .running,
+                createdAt: current.createdAt,
+                updatedAt: Date(),
+                activeSessionID: current.activeSessionID,
+                lastResultPreview: "Project trust approved from mobile",
+                restoreRef: current.restoreRef
+            )
+        }
+    }
+
     public func restoreSession(_ sessionID: String) async throws -> SessionRestoreResult {
         let now = Date()
         let restored = TeamAppInstance(

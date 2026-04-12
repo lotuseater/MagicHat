@@ -134,6 +134,8 @@ public struct TeamAppStatus: Codable, Hashable, Sendable {
     public let healthMessage: String?
     public let latestResult: String?
     public let activeSessionID: String?
+    public let trustStatus: String?
+    public let pendingTrustProject: String?
     public let updatedAt: Date
 
     public init(
@@ -143,6 +145,8 @@ public struct TeamAppStatus: Codable, Hashable, Sendable {
         healthMessage: String?,
         latestResult: String?,
         activeSessionID: String?,
+        trustStatus: String? = nil,
+        pendingTrustProject: String? = nil,
         updatedAt: Date
     ) {
         self.instanceID = instanceID
@@ -151,6 +155,8 @@ public struct TeamAppStatus: Codable, Hashable, Sendable {
         self.healthMessage = healthMessage
         self.latestResult = latestResult
         self.activeSessionID = activeSessionID
+        self.trustStatus = trustStatus
+        self.pendingTrustProject = pendingTrustProject
         self.updatedAt = updatedAt
     }
 }

@@ -199,6 +199,15 @@ public final class FeatureStore: ObservableObject {
         }
     }
 
+    public func answerTrustPrompt(_ approved: Bool) async {
+        guard let instanceID = activeInstanceID else { return }
+
+        await performRemoteAction {
+            try await runtime.answerTrustPrompt(approved, for: instanceID)
+            await refreshStatus()
+        }
+    }
+
     public func restoreSession(sessionID: String) async {
         let trimmed = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

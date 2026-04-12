@@ -21,6 +21,33 @@ public struct StatusPanelView: View {
             }
 
             if let snapshot = store.statusSnapshot {
+                if snapshot.trustStatus == "prompt_required" {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Team App is waiting for project trust", systemImage: "lock.open.trianglebadge.exclamationmark")
+                            .font(.headline)
+                        if let pendingTrustProject = snapshot.pendingTrustProject, pendingTrustProject.isEmpty == false {
+                            Text(pendingTrustProject)
+                                .font(.subheadline)
+                        }
+                        Text("Approve this once and the task can continue from the phone instead of stalling on the PC.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Button("Trust Project") {
+                                Task { await store.answerTrustPrompt(true) }
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("Deny") {
+                                Task { await store.answerTrustPrompt(false) }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(12)
+                    .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
                 HStack(spacing: 12) {
                     Label(snapshot.state.rawValue.capitalized, systemImage: icon(for: snapshot.state))
                         .font(.headline)

@@ -239,6 +239,30 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         }
     }
 
+    public func answerTrustPrompt(_ approved: Bool, for instanceID: String) async throws {
+        let currentHost = try await currentHostRecord()
+        switch currentHost.resolvedConnectionMode {
+        case .remoteRelay:
+            let relayClient = try await activeRelayClient(for: currentHost)
+            try await relayClient.answerTrustPrompt(
+                hostID: currentHost.hostID,
+                instanceID: instanceID,
+                approved: approved
+            )
+            let refreshed = try await relayClient.getInstanceDetail(hostID: currentHost.hostID, instanceID: instanceID)
+            try await updateSnapshot(
+                instanceID: instanceID,
+                sessionID: refreshed.sessionID ?? sessionSnapshot?.activeSessionID,
+                restoreRef: refreshed.restoreRef ?? sessionSnapshot?.activeRestoreRef
+            )
+        case .lanDirect:
+            throw HostAPIError.http(
+                statusCode: 501,
+                message: "Trust approval is available only for relay-backed hosts in the current iOS client"
+            )
+        }
+    }
+
     public func restoreSession(_ sessionID: String) async throws -> SessionRestoreResult {
         let currentHost = try await currentHostRecord()
         switch currentHost.resolvedConnectionMode {

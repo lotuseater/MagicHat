@@ -14,6 +14,7 @@ import com.magichat.mobile.model.RemoteSessionRefreshRequest
 import com.magichat.mobile.model.RemoteSessionRefreshResponse
 import com.magichat.mobile.model.RestoreRefsResponse
 import com.magichat.mobile.model.SubmissionReceipt
+import com.magichat.mobile.model.TrustRequest
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -79,6 +80,13 @@ interface MagicHatRelayApiService {
         @Path("hostId") hostId: String,
         @Path("instanceId") instanceId: String,
         @Body request: FollowUpRequest,
+    ): SubmissionReceipt
+
+    @POST("v2/mobile/hosts/{hostId}/instances/{instanceId}/trust")
+    suspend fun answerTrustPrompt(
+        @Path("hostId") hostId: String,
+        @Path("instanceId") instanceId: String,
+        @Body request: TrustRequest,
     ): SubmissionReceipt
 
     @POST("v2/mobile/hosts/{hostId}/instances/{instanceId}/restore")

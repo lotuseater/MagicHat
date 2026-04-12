@@ -257,6 +257,23 @@ class MagicHatViewModel(
         }
     }
 
+    fun answerTrustPrompt(approved: Boolean) {
+        launchAction {
+            val instanceId = _uiState.value.selectedInstanceId ?: error("Select instance first")
+            repository.answerTrustPrompt(instanceId, approved)
+            val detail = repository.getInstanceDetail(instanceId)
+            val instances = repository.listInstances()
+            val restoreRefs = repository.listKnownRestoreRefs()
+            _uiState.update {
+                it.copy(
+                    selectedDetail = detail,
+                    instances = instances,
+                    knownRestoreRefs = restoreRefs,
+                )
+            }
+        }
+    }
+
     fun pickRestoreRef(restoreRef: String) {
         _uiState.update { it.copy(restoreSessionInput = restoreRef) }
     }

@@ -86,6 +86,8 @@ data class InstanceDetail(
     @Json(name = "restore_state_path") val restoreStatePath: String? = null,
     @Json(name = "restore_ref") val restoreRef: String? = null,
     @Json(name = "run_log_path") val runLogPath: String? = null,
+    @Json(name = "trust_status") val trustStatus: String? = null,
+    @Json(name = "pending_trust_project") val pendingTrustProject: String? = null,
 )
 
 data class SubmissionReceipt(
@@ -216,6 +218,8 @@ data class SnapshotWire(
     @Json(name = "task_state") val taskState: TaskStateWire? = null,
     @Json(name = "result_summary") val resultSummary: ResultSummaryWire? = null,
     @Json(name = "restore_refs") val restoreRefs: RestoreRefsWire? = null,
+    @Json(name = "trust_status") val trustStatus: String? = null,
+    @Json(name = "pending_trust_project") val pendingTrustProject: String? = null,
 )
 
 data class InstanceWire(
@@ -255,6 +259,10 @@ data class PromptRequest(
 
 data class FollowUpRequest(
     val message: String,
+)
+
+data class TrustRequest(
+    val approved: Boolean,
 )
 
 data class InstanceEvent(

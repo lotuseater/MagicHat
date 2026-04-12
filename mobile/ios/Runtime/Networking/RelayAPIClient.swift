@@ -91,10 +91,26 @@ internal struct RemoteResultSummary: Decodable, Sendable {
 internal struct RemoteSnapshot: Decodable, Sendable {
     let phase: String?
     let resultSummary: RemoteResultSummary?
+    let trustStatus: String?
+    let pendingTrustProject: String?
+
+    init(
+        phase: String?,
+        resultSummary: RemoteResultSummary?,
+        trustStatus: String? = nil,
+        pendingTrustProject: String? = nil
+    ) {
+        self.phase = phase
+        self.resultSummary = resultSummary
+        self.trustStatus = trustStatus
+        self.pendingTrustProject = pendingTrustProject
+    }
 
     private enum CodingKeys: String, CodingKey {
         case phase
         case resultSummary = "result_summary"
+        case trustStatus = "trust_status"
+        case pendingTrustProject = "pending_trust_project"
     }
 }
 
@@ -156,6 +172,8 @@ internal struct RemoteInstanceWire: Decodable, Sendable {
             healthMessage: status ?? health ?? phase ?? snapshot?.phase,
             latestResult: summaryText ?? snapshot?.resultSummary?.shortText ?? resultSummary?.shortText,
             activeSessionID: sessionID,
+            trustStatus: snapshot?.trustStatus,
+            pendingTrustProject: snapshot?.pendingTrustProject,
             updatedAt: now
         )
     }
@@ -173,6 +191,7 @@ internal protocol RelayAPIClient: Sendable {
     func closeInstance(hostID: String, instanceID: String) async throws
     func sendPrompt(hostID: String, instanceID: String, prompt: String) async throws
     func sendFollowUp(hostID: String, instanceID: String, message: String) async throws
+    func answerTrustPrompt(hostID: String, instanceID: String, approved: Bool) async throws
     func listKnownRestoreRefs(hostID: String) async throws -> [KnownRestoreRef]
 }
 
@@ -224,6 +243,7 @@ internal struct URLSessionRelayAPIClient: RelayAPIClient {
 
     private struct PromptRequest: Encodable { let prompt: String }
     private struct FollowUpRequest: Encodable { let message: String }
+    private struct TrustRequest: Encodable { let approved: Bool }
     private struct LaunchRequest: Encodable {
         let title: String?
         let restoreRef: String?
@@ -354,6 +374,15 @@ internal struct URLSessionRelayAPIClient: RelayAPIClient {
             path: "/v2/mobile/hosts/\(hostID)/instances/\(instanceID)/follow-up",
             method: "POST",
             body: FollowUpRequest(message: message),
+            decodeAs: EmptyResponse.self
+        )
+    }
+
+    func answerTrustPrompt(hostID: String, instanceID: String, approved: Bool) async throws {
+        let _: EmptyResponse = try await request(
+            path: "/v2/mobile/hosts/\(hostID)/instances/\(instanceID)/trust",
+            method: "POST",
+            body: TrustRequest(approved: approved),
             decodeAs: EmptyResponse.self
         )
     }

@@ -17,6 +17,7 @@ import com.magichat.mobile.model.RemotePairClaimRequest
 import com.magichat.mobile.model.RemoteSessionRefreshRequest
 import com.magichat.mobile.model.SubmissionReceipt
 import com.magichat.mobile.model.TeamAppInstance
+import com.magichat.mobile.model.TrustRequest
 import com.magichat.mobile.network.MagicHatApiFactory
 import com.magichat.mobile.network.RemotePairingUri
 import com.magichat.mobile.network.SseEventStreamClient
@@ -45,6 +46,7 @@ interface MagicHatRepositoryContract {
     suspend fun closeInstance(instanceId: String)
     suspend fun sendPrompt(instanceId: String, prompt: String): SubmissionReceipt
     suspend fun sendFollowUp(instanceId: String, followUp: String): SubmissionReceipt
+    suspend fun answerTrustPrompt(instanceId: String, approved: Boolean): SubmissionReceipt
     suspend fun restoreSession(restoreSelector: String): InstanceDetail
 
     fun observeInstanceEvents(
@@ -317,6 +319,26 @@ class MagicHatRepository(
         }
     }
 
+    override suspend fun answerTrustPrompt(instanceId: String, approved: Boolean): SubmissionReceipt {
+        val context = requireActiveContext()
+        return if (isRemote(context.record)) {
+            withTransportRetry {
+                relayApiFor(context.record).answerTrustPrompt(
+                    context.record.hostId,
+                    instanceId,
+                    TrustRequest(approved = approved),
+                )
+            }
+        } else {
+            withTransportRetry {
+                lanApiFor(context.record).answerTrustPrompt(
+                    instanceId,
+                    TrustRequest(approved = approved),
+                )
+            }
+        }
+    }
+
     override suspend fun restoreSession(restoreSelector: String): InstanceDetail {
         val context = requireActiveContext()
         val launched = if (isRemote(context.record)) {
@@ -477,6 +499,8 @@ class MagicHatRepository(
             restoreStatePath = preferredRestorePath(instance),
             restoreRef = instance.restoreRef?.takeIf { it.isNotBlank() },
             runLogPath = preferredRunLogPath(instance),
+            trustStatus = instance.snapshot?.trustStatus?.takeIf { it.isNotBlank() },
+            pendingTrustProject = instance.snapshot?.pendingTrustProject?.takeIf { it.isNotBlank() },
         )
     }
 

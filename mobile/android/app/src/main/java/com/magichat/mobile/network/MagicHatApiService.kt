@@ -10,6 +10,7 @@ import com.magichat.mobile.model.PairRequest
 import com.magichat.mobile.model.PairResponse
 import com.magichat.mobile.model.PromptRequest
 import com.magichat.mobile.model.SubmissionReceipt
+import com.magichat.mobile.model.TrustRequest
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -56,5 +57,11 @@ interface MagicHatApiService {
     suspend fun sendFollowUp(
         @Path("instanceId") instanceId: String,
         @Body request: FollowUpRequest,
+    ): SubmissionReceipt
+
+    @POST("v1/instances/{instanceId}/trust")
+    suspend fun answerTrustPrompt(
+        @Path("instanceId") instanceId: String,
+        @Body request: TrustRequest,
     ): SubmissionReceipt
 }
