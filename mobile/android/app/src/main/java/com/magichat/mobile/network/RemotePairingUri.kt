@@ -40,7 +40,7 @@ data class RemotePairingUri(
             val hostFingerprint = query["host_fingerprint"].orEmpty().trim()
             val expiresAt = query["exp"].orEmpty().trim()
 
-            require(relay.startsWith("http://") || relay.startsWith("https://")) { "Relay URL is missing or invalid" }
+            val normalizedRelayUrl = RelayTrustPolicy.validateRelayBaseUrl(relay)
             require(hostId.isNotBlank()) { "Host ID is missing" }
             require(hostName.isNotBlank()) { "Host name is missing" }
             require(bootstrapToken.isNotBlank()) { "Bootstrap token is missing" }
@@ -49,7 +49,7 @@ data class RemotePairingUri(
             require(Instant.parse(expiresAt).isAfter(Instant.now())) { "Pair URI is expired" }
 
             return RemotePairingUri(
-                relayUrl = if (relay.endsWith('/')) relay else "$relay/",
+                relayUrl = normalizedRelayUrl,
                 hostId = hostId,
                 hostName = hostName,
                 bootstrapToken = bootstrapToken,

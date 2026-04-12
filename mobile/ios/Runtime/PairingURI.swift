@@ -77,8 +77,7 @@ internal struct RemotePairingURIComponents: Sendable {
         let hostFingerprint = queryItems["host_fingerprint"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let expiresAtValue = queryItems["exp"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        guard relayURL.hasPrefix("http://") || relayURL.hasPrefix("https://"),
-              hostID.isEmpty == false,
+        guard hostID.isEmpty == false,
               hostName.isEmpty == false,
               bootstrapToken.isEmpty == false,
               hostFingerprint.isEmpty == false,
@@ -88,8 +87,20 @@ internal struct RemotePairingURIComponents: Sendable {
             throw HostAPIError.invalidPairingURI(rawValue)
         }
 
+        let validatedRelayURL: URL
+        do {
+            validatedRelayURL = try RelayTrustPolicy.validateRelayURL(relayURL)
+        } catch let error as HostAPIError {
+            switch error {
+            case .invalidBaseURL, .insecureRelayURL:
+                throw HostAPIError.invalidPairingURI(rawValue)
+            default:
+                throw error
+            }
+        }
+
         return RemotePairingURIComponents(
-            relayURL: relayURL.hasSuffix("/") ? relayURL : "\(relayURL)/",
+            relayURL: validatedRelayURL.absoluteString,
             hostID: hostID,
             hostName: hostName,
             bootstrapToken: bootstrapToken,

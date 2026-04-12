@@ -240,10 +240,10 @@ internal struct URLSessionRelayAPIClient: RelayAPIClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: URL, accessToken: String?, certificatePinsetVersion: String?) {
-        self.baseURL = baseURL
+    init(baseURL: URL, accessToken: String?, certificatePinsetVersion: String?) throws {
+        self.baseURL = try RelayTrustPolicy.validateRelayURL(baseURL)
         self.accessToken = accessToken
-        _ = certificatePinsetVersion
+        _ = try RelayTrustPolicy.pins(for: certificatePinsetVersion)
 
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true

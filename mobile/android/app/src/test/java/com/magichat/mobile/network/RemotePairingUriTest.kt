@@ -26,4 +26,22 @@ class RemotePairingUriTest {
 
         RemotePairingUri.parse(uri)
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsNonLocalInsecureRelayPairUri() {
+        val exp = Instant.now().plus(5, ChronoUnit.MINUTES).toString()
+        val uri = "magichat://pair?v=2&relay=http%3A%2F%2Frelay.example&host_id=host_1&host_name=Office%20PC&bootstrap_token=bt_123&host_fingerprint=sha256%3Atest&exp=$exp"
+
+        RemotePairingUri.parse(uri)
+    }
+
+    @Test
+    fun allowsLocalDevelopmentRelayPairUri() {
+        val exp = Instant.now().plus(5, ChronoUnit.MINUTES).toString()
+        val uri = "magichat://pair?v=2&relay=http%3A%2F%2F10.0.2.2%3A18795&host_id=host_1&host_name=Office%20PC&bootstrap_token=bt_123&host_fingerprint=sha256%3Atest&exp=$exp"
+
+        val parsed = RemotePairingUri.parse(uri)
+
+        assertThat(parsed.relayUrl).isEqualTo("http://10.0.2.2:18795/")
+    }
 }

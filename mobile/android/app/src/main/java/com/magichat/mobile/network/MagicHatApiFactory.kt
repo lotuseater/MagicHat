@@ -8,8 +8,9 @@ import java.util.concurrent.TimeUnit
 
 class MagicHatApiFactory {
     fun create(baseUrl: String, tokenProvider: () -> String?): MagicHatApiService {
+        val normalizedBaseUrl = normalizeBaseUrl(baseUrl)
         return Retrofit.Builder()
-            .baseUrl(normalizeBaseUrl(baseUrl))
+            .baseUrl(normalizedBaseUrl)
             .addConverterFactory(MoshiConverterFactory.create(MoshiFactory.instance))
             .client(buildClient(tokenProvider))
             .build()
@@ -21,18 +22,20 @@ class MagicHatApiFactory {
         tokenProvider: () -> String?,
         certificatePinsetVersion: String? = null,
     ): MagicHatRelayApiService {
+        val normalizedBaseUrl = RelayTrustPolicy.validateRelayBaseUrl(baseUrl)
+        val pins = RelayTrustPolicy.pinsForVersion(certificatePinsetVersion)
         val client = OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(tokenProvider))
             .connectTimeout(3, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .apply {
-                maybeApplyCertificatePins(this, baseUrl, certificatePinsetVersion)
+                maybeApplyCertificatePins(this, normalizedBaseUrl, pins)
             }
             .build()
 
         return Retrofit.Builder()
-            .baseUrl(normalizeBaseUrl(baseUrl))
+            .baseUrl(normalizedBaseUrl)
             .addConverterFactory(MoshiConverterFactory.create(MoshiFactory.instance))
             .client(client)
             .build()
@@ -59,16 +62,11 @@ class MagicHatApiFactory {
     private fun maybeApplyCertificatePins(
         builder: OkHttpClient.Builder,
         baseUrl: String,
-        certificatePinsetVersion: String?,
+        pins: List<String>,
     ) {
         val normalized = normalizeBaseUrl(baseUrl)
         if (!normalized.startsWith("https://")) {
             return
-        }
-
-        val pins: List<String> = when (certificatePinsetVersion) {
-            "dev-insecure", null -> emptyList()
-            else -> emptyList()
         }
         if (pins.isEmpty()) {
             return

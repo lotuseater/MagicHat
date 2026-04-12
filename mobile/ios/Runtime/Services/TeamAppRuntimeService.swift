@@ -4,7 +4,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
     private let beaconDiscovery: BeaconDiscovering
     private let persistence: RuntimePersistence
     private let makeClient: @Sendable (URL) -> HostAPIClient
-    private let makeRelayClient: @Sendable (URL, String?, String?) -> RelayAPIClient
+    private let makeRelayClient: @Sendable (URL, String?, String?) throws -> RelayAPIClient
     private let deviceKeyStore: DeviceKeyStore
 
     private var bootstrapped = false
@@ -23,7 +23,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             deviceKeyStore: DeviceKeyStore(),
             makeClient: makeClient,
             makeRelayClient: { baseURL, accessToken, certificatePinsetVersion in
-                URLSessionRelayAPIClient(
+                try URLSessionRelayAPIClient(
                     baseURL: baseURL,
                     accessToken: accessToken,
                     certificatePinsetVersion: certificatePinsetVersion
@@ -37,7 +37,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         persistence: RuntimePersistence,
         deviceKeyStore: DeviceKeyStore,
         makeClient: @escaping @Sendable (URL) -> HostAPIClient,
-        makeRelayClient: @escaping @Sendable (URL, String?, String?) -> RelayAPIClient
+        makeRelayClient: @escaping @Sendable (URL, String?, String?) throws -> RelayAPIClient
     ) {
         self.beaconDiscovery = beaconDiscovery
         self.persistence = persistence
@@ -279,7 +279,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         }
 
         let identity = try await deviceKeyStore.getOrCreate()
-        let relayClient = makeRelayClient(relayURL, nil, nil)
+        let relayClient = try makeRelayClient(relayURL, nil, nil)
         let claim = try await relayClient.claimBootstrap(
             bootstrapToken: components.bootstrapToken,
             deviceName: deviceName,
@@ -389,7 +389,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         guard let baseURL = refreshedHost.resolvedBaseURL else {
             throw HostAPIError.invalidBaseURL(refreshedHost.baseURL)
         }
-        return makeRelayClient(baseURL, refreshedHost.sessionToken, refreshedHost.certificatePinsetVersion)
+        return try makeRelayClient(baseURL, refreshedHost.sessionToken, refreshedHost.certificatePinsetVersion)
     }
 
     private func refreshRemoteSessionIfNeeded(_ host: HostBeacon) async throws -> HostBeacon {
@@ -411,7 +411,7 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             throw HostAPIError.noPairedHost
         }
 
-        let relayClient = makeRelayClient(baseURL, nil, host.certificatePinsetVersion)
+        let relayClient = try makeRelayClient(baseURL, nil, host.certificatePinsetVersion)
         let refreshed = try await relayClient.refreshSession(refreshToken: refreshToken)
         let updatedHost = HostBeacon(
             hostID: host.hostID,

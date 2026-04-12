@@ -96,6 +96,12 @@ Android build:
 ./scripts/mobile-validation/android_build.sh
 ```
 
+Android unit tests:
+
+```bash
+./scripts/mobile-validation/android_unit_tests.sh
+```
+
 Local mock host for mobile smoke checks:
 
 ```bash
@@ -124,6 +130,8 @@ iOS core package tests:
 
 - The Android client currently assumes a manually entered base URL for the paired PC host.
 - The Android client now supports both LAN pairing and v2 remote pairing from a `magichat://pair?...` URI.
+- Remote relay URLs must use HTTPS unless they target a true local development relay such as `localhost`, `127.0.0.1`, or the Android emulator host alias `10.0.2.2`.
+- Mobile clients now fail closed on unknown relay certificate pinset versions instead of silently accepting them.
 - Remote pairing requires the host-local admin surface on `http://127.0.0.1:<host-port>/admin/v2/remote/*` to generate a bootstrap URI/QR and approve new devices.
 - The relay is trusted for payload visibility in v2.0, but the envelopes and stored metadata are versioned so later end-to-end encrypted payloads can be added without breaking paired hosts.
 - LAN restore still uses the Team App `session_restore.json` path on the paired PC; remote restore uses opaque host-generated restore refs so raw Team App filesystem paths do not leave the PC.

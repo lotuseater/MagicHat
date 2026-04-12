@@ -3,6 +3,8 @@ import Foundation
 public enum HostAPIError: Error, LocalizedError {
     case invalidBaseURL(String)
     case invalidPairingURI(String)
+    case insecureRelayURL(String)
+    case unsupportedRelayPinsetVersion(String)
     case noPairedHost
     case beaconDiscoveryFailed
     case transport(Error)
@@ -19,6 +21,10 @@ public enum HostAPIError: Error, LocalizedError {
             return "Invalid base URL: \(raw)"
         case .invalidPairingURI(let raw):
             return "Invalid pairing URI: \(raw)"
+        case .insecureRelayURL(let raw):
+            return "Relay URL must use HTTPS unless it targets a local development relay: \(raw)"
+        case .unsupportedRelayPinsetVersion(let version):
+            return "Unsupported relay certificate pinset version: \(version)"
         case .noPairedHost:
             return "No paired host available"
         case .beaconDiscoveryFailed:
