@@ -32,7 +32,7 @@ internal struct RemoteClaimStatus: Decodable, Sendable {
 
 internal struct RemoteDeviceRegistration: Decodable, Sendable {
     let hostID: String
-    let hostName: String
+    let hostName: String?
     let deviceID: String
     let accessToken: String
     let accessTokenExpiresAt: Date

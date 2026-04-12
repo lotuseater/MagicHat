@@ -20,21 +20,30 @@ data class PairingSnapshot(
     val activeHostId: String?,
 )
 
+interface PairingStoreContract {
+    val state: Flow<PairingSnapshot>
+
+    suspend fun readSnapshot(): PairingSnapshot
+    suspend fun upsert(record: PairedHostRecord)
+    suspend fun setActiveHost(hostId: String)
+    suspend fun removeHost(hostId: String)
+}
+
 class PairingStore(
     private val context: Context,
-) {
+) : PairingStoreContract {
     private val hostListAdapter: JsonAdapter<List<PairedHostRecord>> =
         MoshiFactory.instance.adapter(
             Types.newParameterizedType(List::class.java, PairedHostRecord::class.java),
         )
 
-    val state: Flow<PairingSnapshot> = context.pairingDataStore.data.map { prefs ->
+    override val state: Flow<PairingSnapshot> = context.pairingDataStore.data.map { prefs ->
         decodeSnapshot(prefs)
     }
 
-    suspend fun readSnapshot(): PairingSnapshot = state.first()
+    override suspend fun readSnapshot(): PairingSnapshot = state.first()
 
-    suspend fun upsert(record: PairedHostRecord) {
+    override suspend fun upsert(record: PairedHostRecord) {
         context.pairingDataStore.edit { prefs ->
             val snapshot = decodeSnapshot(prefs)
             val nextHosts = snapshot.pairedHosts
@@ -46,13 +55,13 @@ class PairingStore(
         }
     }
 
-    suspend fun setActiveHost(hostId: String) {
+    override suspend fun setActiveHost(hostId: String) {
         context.pairingDataStore.edit { prefs ->
             prefs[ACTIVE_HOST_ID] = hostId
         }
     }
 
-    suspend fun removeHost(hostId: String) {
+    override suspend fun removeHost(hostId: String) {
         context.pairingDataStore.edit { prefs ->
             val snapshot = decodeSnapshot(prefs)
             val nextHosts = snapshot.pairedHosts.filterNot { it.hostId == hostId }

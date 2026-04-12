@@ -80,6 +80,12 @@ Remote relay round-trip smoke:
 node ./scripts/remote-validation/remote_roundtrip_smoke.mjs
 ```
 
+Remote stack fixture for client-runtime smoke:
+
+```bash
+node ./scripts/remote-validation/start_remote_stack_fixture.mjs
+```
+
 Python transport tests:
 
 ```bash
@@ -108,6 +114,12 @@ Sequential Android validation:
 
 ```bash
 ./scripts/mobile-validation/android_validate.sh
+```
+
+Android remote client smoke:
+
+```bash
+./scripts/mobile-validation/android_remote_client_smoke.sh
 ```
 
 Android unit tests:

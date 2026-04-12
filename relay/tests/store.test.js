@@ -76,6 +76,7 @@ describe("relay store", () => {
       refreshExpiresAtMs: Date.now() + 60_000,
     });
     expect(claim.host_id).toBe("host_test");
+    expect(claim.host_name).toBe("Office PC");
 
     const rotated = await store.rotateRefreshToken({
       currentRefreshTokenId: "refresh_1",

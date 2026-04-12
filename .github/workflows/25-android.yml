@@ -4,12 +4,18 @@ on:
   push:
     paths:
       - "mobile/android/**"
+      - "host/**"
+      - "relay/**"
       - "scripts/mobile-validation/android_*"
+      - "scripts/remote-validation/start_remote_stack_fixture.mjs"
       - ".github/workflows/25-android.yml"
   pull_request:
     paths:
       - "mobile/android/**"
+      - "host/**"
+      - "relay/**"
       - "scripts/mobile-validation/android_*"
+      - "scripts/remote-validation/start_remote_stack_fixture.mjs"
       - ".github/workflows/25-android.yml"
 
 jobs:
@@ -29,5 +35,23 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            host/package-lock.json
+            relay/package-lock.json
+
+      - name: Install Host Dependencies
+        run: npm ci --prefix host
+
+      - name: Install Relay Dependencies
+        run: npm ci --prefix relay
+
       - name: Run Android validation
         run: ./scripts/mobile-validation/android_validate.sh
+
+      - name: Run Android remote client smoke
+        run: ./scripts/mobile-validation/android_remote_client_smoke.sh

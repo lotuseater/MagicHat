@@ -21,9 +21,9 @@ import com.magichat.mobile.model.TrustRequest
 import com.magichat.mobile.network.MagicHatApiFactory
 import com.magichat.mobile.network.RemotePairingUri
 import com.magichat.mobile.network.SseEventStreamClient
-import com.magichat.mobile.security.DeviceKeyStore
+import com.magichat.mobile.security.DeviceKeyStoreContract
 import com.magichat.mobile.storage.PairingSnapshot
-import com.magichat.mobile.storage.PairingStore
+import com.magichat.mobile.storage.PairingStoreContract
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import java.io.IOException
@@ -59,8 +59,8 @@ interface MagicHatRepositoryContract {
 }
 
 class MagicHatRepository(
-    private val pairingStore: PairingStore,
-    private val deviceKeyStore: DeviceKeyStore,
+    private val pairingStore: PairingStoreContract,
+    private val deviceKeyStore: DeviceKeyStoreContract,
     private val apiFactory: MagicHatApiFactory = MagicHatApiFactory(),
     private val sseEventStreamClient: SseEventStreamClient = SseEventStreamClient(apiFactory),
 ) : MagicHatRepositoryContract {
@@ -165,10 +165,15 @@ class MagicHatRepository(
                 ),
             )
         }
+        val remoteDisplayName = registration.hostName
+            ?.takeUnless { it.isBlank() }
+            ?: claim.hostName
+                .takeUnless { it.isBlank() }
+            ?: parsed.hostName
 
         val record = PairedHostRecord(
             hostId = registration.hostId,
-            displayName = registration.hostName,
+            displayName = remoteDisplayName,
             baseUrl = parsed.relayUrl,
             sessionToken = registration.accessToken,
             pairedAt = Instant.now().toString(),

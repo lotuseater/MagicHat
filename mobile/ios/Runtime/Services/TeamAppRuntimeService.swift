@@ -417,10 +417,16 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
             challenge: challenge,
             signature: signature
         )
+        let registrationHostName = registration.hostName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let claimHostName = claim.hostName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteDisplayName =
+            (registrationHostName?.isEmpty == false ? registrationHostName : nil)
+            ?? (claimHostName.isEmpty == false ? claimHostName : nil)
+            ?? components.hostName
 
         let pairedHost = HostBeacon(
             hostID: registration.hostID,
-            displayName: registration.hostName,
+            displayName: remoteDisplayName,
             baseURL: components.relayURL,
             apiVersion: "v2",
             capabilities: ["instances", "prompt", "follow-up", "restore", "remote_pairing"],

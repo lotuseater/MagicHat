@@ -101,6 +101,7 @@ async function pairRemoteDevice({ relayPort, hostBaseUrl, deviceName = "Remote T
     },
   });
   expect(registration.status).toBe(201);
+  expect(registration.body.host_name).toBeTruthy();
 
   return {
     bootstrap,

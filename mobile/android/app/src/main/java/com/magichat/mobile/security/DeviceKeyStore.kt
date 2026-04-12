@@ -18,9 +18,15 @@ data class DeviceIdentity(
     val publicKeyBase64: String,
 )
 
+interface DeviceKeyStoreContract {
+    fun getOrCreate(): DeviceIdentity
+    fun sign(message: String): String
+    fun clear()
+}
+
 class DeviceKeyStore(
     context: Context,
-) {
+) : DeviceKeyStoreContract {
     private val prefs = EncryptedSharedPreferences.create(
         context,
         "magichat_remote_keys",
@@ -29,7 +35,7 @@ class DeviceKeyStore(
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
-    fun getOrCreate(): DeviceIdentity {
+    override fun getOrCreate(): DeviceIdentity {
         val existingPublic = prefs.getString(KEY_PUBLIC, null)
         val existingPrivate = prefs.getString(KEY_PRIVATE, null)
         val existingDeviceId = prefs.getString(KEY_DEVICE_ID, null)
@@ -54,7 +60,7 @@ class DeviceKeyStore(
         return DeviceIdentity(deviceId = deviceId, publicKeyBase64 = publicEncoded)
     }
 
-    fun sign(message: String): String {
+    override fun sign(message: String): String {
         val privateKeyValue = prefs.getString(KEY_PRIVATE, null) ?: error("Remote device key is missing")
         val signature = Signature.getInstance("Ed25519")
         signature.initSign(decodePrivateKey(privateKeyValue))
@@ -62,7 +68,7 @@ class DeviceKeyStore(
         return encodeUrlSafe(signature.sign())
     }
 
-    fun clear() {
+    override fun clear() {
         prefs.edit().clear().apply()
     }
 

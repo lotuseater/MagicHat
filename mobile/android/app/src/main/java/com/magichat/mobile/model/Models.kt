@@ -145,7 +145,7 @@ data class RemoteDeviceRegisterRequest(
 
 data class RemoteDeviceRegisterResponse(
     @Json(name = "host_id") val hostId: String,
-    @Json(name = "host_name") val hostName: String,
+    @Json(name = "host_name") val hostName: String? = null,
     @Json(name = "device_id") val deviceId: String,
     @Json(name = "access_token") val accessToken: String,
     @Json(name = "access_token_expires_at") val accessTokenExpiresAt: String,

@@ -1,0 +1,45 @@
+name: 22-remote-smoke
+
+on:
+  push:
+    paths:
+      - "host/**"
+      - "relay/**"
+      - "scripts/remote-validation/**"
+      - "docs/architecture/remote_protocol_v2.md"
+      - "docs/security/remote_threat_model_v2.md"
+      - ".github/workflows/22-remote-smoke.yml"
+  pull_request:
+    paths:
+      - "host/**"
+      - "relay/**"
+      - "scripts/remote-validation/**"
+      - "docs/architecture/remote_protocol_v2.md"
+      - "docs/security/remote_threat_model_v2.md"
+      - ".github/workflows/22-remote-smoke.yml"
+
+jobs:
+  remote-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            host/package-lock.json
+            relay/package-lock.json
+
+      - name: Install Host Dependencies
+        run: npm ci --prefix host
+
+      - name: Install Relay Dependencies
+        run: npm ci --prefix relay
+
+      - name: Run Remote Round-Trip Smoke
+        run: node ./scripts/remote-validation/remote_roundtrip_smoke.mjs

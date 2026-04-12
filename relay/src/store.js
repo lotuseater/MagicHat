@@ -319,7 +319,13 @@ export class RelayStore {
     refreshExpiresAtMs,
   }) {
     return this.db.transaction(async (tx) => {
-      const claim = await tx.get("SELECT * FROM device_claims WHERE claim_id = ?", [claimId]);
+      const claim = await tx.get(
+        `SELECT device_claims.*, bootstrap_tokens.host_name
+         FROM device_claims
+         JOIN bootstrap_tokens ON bootstrap_tokens.claim_id = device_claims.claim_id
+         WHERE device_claims.claim_id = ?`,
+        [claimId],
+      );
       if (!claim || claim.status !== "approved") {
         return null;
       }
