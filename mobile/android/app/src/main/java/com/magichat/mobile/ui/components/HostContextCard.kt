@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +22,8 @@ fun HostContextCard(
     host: PairedHostRecord?,
     presence: String?,
     activeInstanceId: String? = null,
+    onRefreshStatus: (() -> Unit)? = null,
+    refreshEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Card(modifier = modifier.fillMaxWidth()) {
@@ -59,6 +62,14 @@ fun HostContextCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+            if (onRefreshStatus != null) {
+                Button(
+                    onClick = onRefreshStatus,
+                    enabled = refreshEnabled,
+                ) {
+                    Text("Check Host")
+                }
             }
         }
     }

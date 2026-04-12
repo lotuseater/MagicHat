@@ -76,6 +76,24 @@ final class FeatureStoreHostManagementTests: XCTestCase {
         XCTAssertTrue(store.streamEvents.isEmpty)
     }
 
+    func testRefreshCurrentHostStatusUpdatesPresence() async {
+        let runtime = FakeFeatureRuntime(
+            hosts: [
+                Self.host(hostID: "remote-1", name: "Office Relay", mode: .remoteRelay, presence: "offline"),
+            ],
+            activeHostID: "remote-1",
+            instancesByHost: [:]
+        )
+        runtime.refreshedPresence = "online"
+        let store = FeatureStore(runtime: runtime)
+
+        await store.bootstrap()
+        await store.refreshCurrentHostStatus()
+
+        XCTAssertEqual(store.pairedHost?.lastKnownHostPresence, "online")
+        XCTAssertEqual(store.activeHostPresence, "online")
+    }
+
     private static func host(
         hostID: String,
         name: String,
@@ -119,6 +137,7 @@ private final class FakeFeatureRuntime: TeamAppRuntimeProviding {
     private var hosts: [HostBeacon]
     private var activeHostID: String?
     private let instancesByHost: [String: [TeamAppInstance]]
+    var refreshedPresence: String?
 
     init(
         hosts: [HostBeacon],
@@ -171,6 +190,33 @@ private final class FakeFeatureRuntime: TeamAppRuntimeProviding {
 
     func currentHost() async -> HostBeacon? {
         hosts.first(where: { $0.hostID == activeHostID })
+    }
+
+    func refreshCurrentHostStatus() async throws -> HostBeacon? {
+        guard let activeHostID, let index = hosts.firstIndex(where: { $0.hostID == activeHostID }) else {
+            return nil
+        }
+        if let refreshedPresence {
+            let current = hosts[index]
+            let updated = HostBeacon(
+                hostID: current.hostID,
+                displayName: current.displayName,
+                baseURL: current.baseURL,
+                apiVersion: current.apiVersion,
+                capabilities: current.capabilities,
+                lastSeenAt: Date(),
+                connectionMode: current.connectionMode,
+                sessionToken: current.sessionToken,
+                refreshToken: current.refreshToken,
+                accessTokenExpiresAt: current.accessTokenExpiresAt,
+                refreshTokenExpiresAt: current.refreshTokenExpiresAt,
+                deviceID: current.deviceID,
+                certificatePinsetVersion: current.certificatePinsetVersion,
+                lastKnownHostPresence: refreshedPresence
+            )
+            hosts[index] = updated
+        }
+        return hosts[index]
     }
 
     func selectHost(id: String) async throws {

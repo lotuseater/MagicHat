@@ -138,6 +138,102 @@ public actor TeamAppRuntimeService: TeamAppRuntimeProviding {
         await safeBootstrappedHost()
     }
 
+    public func refreshCurrentHostStatus() async throws -> HostBeacon? {
+        try await ensureBootstrapped()
+        guard let currentHost = host else {
+            return nil
+        }
+
+        let refreshed: HostBeacon
+        switch currentHost.resolvedConnectionMode {
+        case .remoteRelay:
+            do {
+                let relayClient = try await activeRelayClient(for: currentHost)
+                let hosts = try await relayClient.listHosts()
+                let status = hosts.first(where: { $0.hostID == currentHost.hostID })?.status ?? "offline"
+                refreshed = HostBeacon(
+                    hostID: currentHost.hostID,
+                    displayName: currentHost.displayName,
+                    baseURL: currentHost.baseURL,
+                    apiVersion: currentHost.apiVersion,
+                    capabilities: currentHost.capabilities,
+                    lastSeenAt: Date(),
+                    connectionMode: currentHost.connectionMode,
+                    sessionToken: currentHost.sessionToken,
+                    refreshToken: currentHost.refreshToken,
+                    accessTokenExpiresAt: currentHost.accessTokenExpiresAt,
+                    refreshTokenExpiresAt: currentHost.refreshTokenExpiresAt,
+                    deviceID: currentHost.deviceID,
+                    certificatePinsetVersion: currentHost.certificatePinsetVersion,
+                    lastKnownHostPresence: status
+                )
+            } catch {
+                refreshed = HostBeacon(
+                    hostID: currentHost.hostID,
+                    displayName: currentHost.displayName,
+                    baseURL: currentHost.baseURL,
+                    apiVersion: currentHost.apiVersion,
+                    capabilities: currentHost.capabilities,
+                    lastSeenAt: currentHost.lastSeenAt,
+                    connectionMode: currentHost.connectionMode,
+                    sessionToken: currentHost.sessionToken,
+                    refreshToken: currentHost.refreshToken,
+                    accessTokenExpiresAt: currentHost.accessTokenExpiresAt,
+                    refreshTokenExpiresAt: currentHost.refreshTokenExpiresAt,
+                    deviceID: currentHost.deviceID,
+                    certificatePinsetVersion: currentHost.certificatePinsetVersion,
+                    lastKnownHostPresence: "offline"
+                )
+            }
+        case .lanDirect:
+            guard let baseURL = currentHost.resolvedBaseURL else {
+                throw HostAPIError.invalidBaseURL(currentHost.baseURL)
+            }
+            let candidateClient = makeClient(baseURL, currentHost.sessionToken)
+            do {
+                _ = try await candidateClient.fetchHealth()
+                self.client = candidateClient
+                refreshed = HostBeacon(
+                    hostID: currentHost.hostID,
+                    displayName: currentHost.displayName,
+                    baseURL: currentHost.baseURL,
+                    apiVersion: currentHost.apiVersion,
+                    capabilities: currentHost.capabilities,
+                    lastSeenAt: Date(),
+                    connectionMode: currentHost.connectionMode,
+                    sessionToken: currentHost.sessionToken,
+                    refreshToken: currentHost.refreshToken,
+                    accessTokenExpiresAt: currentHost.accessTokenExpiresAt,
+                    refreshTokenExpiresAt: currentHost.refreshTokenExpiresAt,
+                    deviceID: currentHost.deviceID,
+                    certificatePinsetVersion: currentHost.certificatePinsetVersion,
+                    lastKnownHostPresence: "online"
+                )
+            } catch {
+                self.client = nil
+                refreshed = HostBeacon(
+                    hostID: currentHost.hostID,
+                    displayName: currentHost.displayName,
+                    baseURL: currentHost.baseURL,
+                    apiVersion: currentHost.apiVersion,
+                    capabilities: currentHost.capabilities,
+                    lastSeenAt: currentHost.lastSeenAt,
+                    connectionMode: currentHost.connectionMode,
+                    sessionToken: currentHost.sessionToken,
+                    refreshToken: currentHost.refreshToken,
+                    accessTokenExpiresAt: currentHost.accessTokenExpiresAt,
+                    refreshTokenExpiresAt: currentHost.refreshTokenExpiresAt,
+                    deviceID: currentHost.deviceID,
+                    certificatePinsetVersion: currentHost.certificatePinsetVersion,
+                    lastKnownHostPresence: "offline"
+                )
+            }
+        }
+
+        try await replaceKnownHost(refreshed, preserveSnapshot: true)
+        return refreshed
+    }
+
     public func selectHost(id: String) async throws {
         try await ensureBootstrapped()
         guard let nextHost = hosts.first(where: { $0.hostID == id }) else {

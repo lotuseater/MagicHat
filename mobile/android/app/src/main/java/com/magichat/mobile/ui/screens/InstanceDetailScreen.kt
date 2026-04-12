@@ -28,6 +28,7 @@ fun InstanceDetailScreen(
     onSendFollowUp: () -> Unit,
     onTrustApproved: () -> Unit,
     onTrustDenied: () -> Unit,
+    onRefreshActiveHost: () -> Unit,
 ) {
     val detail = state.selectedDetail
     val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
@@ -46,6 +47,8 @@ fun InstanceDetailScreen(
             host = state.activeHost,
             presence = state.activeHostPresence,
             activeInstanceId = state.selectedInstanceId,
+            onRefreshStatus = if (state.activeHost != null) onRefreshActiveHost else null,
+            refreshEnabled = state.isLoading.not(),
         )
         if (state.selectedInstanceId != null && !canRunCommands) {
             Text(

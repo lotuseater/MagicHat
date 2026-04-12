@@ -30,6 +30,7 @@ fun PairingScreen(
     onPairRemote: () -> Unit,
     onSelectPairedHost: (String) -> Unit,
     onForgetHost: (String) -> Unit,
+    onRefreshActiveHost: () -> Unit,
 ) {
     val canProbe = state.isLoading.not()
     val canPairLan = state.isLoading.not() && state.discoveredHosts.isNotEmpty() && state.pairCodeInput.isNotBlank()
@@ -44,6 +45,8 @@ fun PairingScreen(
             HostContextCard(
                 host = state.activeHost,
                 presence = state.activeHostPresence,
+                onRefreshStatus = if (state.activeHost != null) onRefreshActiveHost else null,
+                refreshEnabled = state.isLoading.not(),
             )
         }
 

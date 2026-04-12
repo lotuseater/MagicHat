@@ -127,6 +127,32 @@ class MagicHatViewModelTest {
         assertThat(state.streamStatus).isEqualTo("idle")
     }
 
+    @Test
+    fun refreshActiveHostStatusUpdatesPresenceFromRepository() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository()
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac", presence = "offline")),
+            activeHostId = "alpha",
+        )
+        repository.refreshActiveHostSideEffect = {
+            repository.pairingStateFlow.update { snapshot ->
+                snapshot.copy(
+                    pairedHosts = snapshot.pairedHosts.map { host ->
+                        if (host.hostId == "alpha") host.copy(lastKnownHostPresence = "online") else host
+                    },
+                )
+            }
+        }
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.refreshActiveHostStatus()
+        advanceUntilIdle()
+
+        assertThat(repository.refreshActiveHostCalls).isEqualTo(1)
+        assertThat(viewModel.uiState.value.activeHostPresence).isEqualTo("online")
+    }
+
     private fun pairedHost(
         hostId: String,
         displayName: String,
@@ -167,8 +193,10 @@ private class FakeMagicHatRepository(
     val activeHostSelections = mutableListOf<String>()
     val removedHosts = mutableListOf<String>()
     var removeHostSideEffect: (String) -> Unit = {}
+    var refreshActiveHostSideEffect: () -> Unit = {}
     var listInstancesCalls = 0
     var listRestoreRefsCalls = 0
+    var refreshActiveHostCalls = 0
 
     override val pairingState: Flow<PairingSnapshot> = pairingStateFlow
 
@@ -202,6 +230,13 @@ private class FakeMagicHatRepository(
     override suspend fun removeHost(hostId: String) {
         removedHosts += hostId
         removeHostSideEffect(hostId)
+    }
+
+    override suspend fun refreshActiveHost(): PairedHostRecord? {
+        refreshActiveHostCalls += 1
+        refreshActiveHostSideEffect()
+        val snapshot = pairingStateFlow.value
+        return snapshot.pairedHosts.firstOrNull { it.hostId == snapshot.activeHostId }
     }
 
     override suspend fun listInstances(): List<TeamAppInstance> {

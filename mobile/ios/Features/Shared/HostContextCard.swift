@@ -4,15 +4,21 @@ public struct HostContextCard: View {
     private let host: HostBeacon?
     private let presence: String?
     private let activeInstanceID: String?
+    private let onRefreshStatus: (() -> Void)?
+    private let refreshEnabled: Bool
 
     public init(
         host: HostBeacon?,
         presence: String?,
-        activeInstanceID: String? = nil
+        activeInstanceID: String? = nil,
+        onRefreshStatus: (() -> Void)? = nil,
+        refreshEnabled: Bool = true
     ) {
         self.host = host
         self.presence = presence
         self.activeInstanceID = activeInstanceID
+        self.onRefreshStatus = onRefreshStatus
+        self.refreshEnabled = refreshEnabled
     }
 
     public var body: some View {
@@ -40,6 +46,13 @@ public struct HostContextCard: View {
                     Text("This host is offline right now. You can still manage pairings, but Team App commands are paused until it reconnects.")
                         .font(.footnote)
                         .foregroundStyle(.red)
+                }
+                if let onRefreshStatus {
+                    Button("Check Host") {
+                        onRefreshStatus()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(refreshEnabled == false)
                 }
             } else {
                 Text("No host selected")

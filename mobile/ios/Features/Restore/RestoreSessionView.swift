@@ -20,7 +20,9 @@ public struct RestoreSessionView: View {
             HostContextCard(
                 host: store.pairedHost,
                 presence: store.activeHostPresence,
-                activeInstanceID: store.activeInstanceID
+                activeInstanceID: store.activeInstanceID,
+                onRefreshStatus: store.pairedHost == nil ? nil : { Task { await store.refreshCurrentHostStatus() } },
+                refreshEnabled: store.isPerformingRemoteAction == false
             )
 
             TextField("Restore ref or Team App session ID", text: $sessionID)

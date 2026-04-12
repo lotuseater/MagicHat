@@ -79,6 +79,7 @@ fun MagicHatApp(
                     onPairRemote = viewModel::pairRemote,
                     onSelectPairedHost = viewModel::selectPairedHost,
                     onForgetHost = viewModel::forgetHost,
+                    onRefreshActiveHost = viewModel::refreshActiveHostStatus,
                 )
 
                 MagicHatScreen.INSTANCES -> InstancesScreen(
@@ -91,6 +92,7 @@ fun MagicHatApp(
                     onOpenInstance = viewModel::openInstance,
                     onPickRestoreRef = viewModel::pickRestoreRef,
                     onRestoreSession = viewModel::restoreSession,
+                    onRefreshActiveHost = viewModel::refreshActiveHostStatus,
                 )
 
                 MagicHatScreen.INSTANCE_DETAIL -> {
@@ -108,6 +110,7 @@ fun MagicHatApp(
                             onSendFollowUp = viewModel::sendFollowUp,
                             onTrustApproved = { viewModel.answerTrustPrompt(true) },
                             onTrustDenied = { viewModel.answerTrustPrompt(false) },
+                            onRefreshActiveHost = viewModel::refreshActiveHostStatus,
                         )
                     }
                 }

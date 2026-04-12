@@ -32,6 +32,7 @@ fun InstancesScreen(
     onOpenInstance: (String) -> Unit,
     onPickRestoreRef: (String) -> Unit,
     onRestoreSession: () -> Unit,
+    onRefreshActiveHost: () -> Unit,
 ) {
     val hasActiveHost = state.activeHost != null
     val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
@@ -46,6 +47,8 @@ fun InstancesScreen(
                 host = state.activeHost,
                 presence = state.activeHostPresence,
                 activeInstanceId = state.selectedInstanceId,
+                onRefreshStatus = if (state.activeHost != null) onRefreshActiveHost else null,
+                refreshEnabled = state.isLoading.not(),
             )
         }
 

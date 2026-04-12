@@ -6,6 +6,7 @@ public protocol TeamAppRuntimeProviding: AnyObject {
     func registerPairingURI(_ rawURI: String, deviceName: String) async throws -> HostBeacon
     func pairedHosts() async -> [HostBeacon]
     func currentHost() async -> HostBeacon?
+    func refreshCurrentHostStatus() async throws -> HostBeacon?
     func selectHost(id: String) async throws
     func removeHost(id: String) async throws
 

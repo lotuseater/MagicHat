@@ -120,6 +120,13 @@ public final class FeatureStore: ObservableObject {
         }
     }
 
+    public func refreshCurrentHostStatus() async {
+        await performRemoteAction {
+            _ = try await runtime.refreshCurrentHostStatus()
+            try await syncHostContext()
+        }
+    }
+
     public func reloadInstances() async {
         await performRemoteAction {
             guard pairedHost != nil else {

@@ -92,6 +92,11 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
         pairedHost
     }
 
+    public func refreshCurrentHostStatus() async throws -> HostBeacon? {
+        guard let pairedHost else { return nil }
+        return pairedHost
+    }
+
     public func selectHost(id: String) async throws {
         guard let nextHost = pairedHostsList.first(where: { $0.hostID == id }) else {
             throw HostAPIError.noPairedHost

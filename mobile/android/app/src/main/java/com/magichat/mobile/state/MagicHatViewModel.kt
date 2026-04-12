@@ -190,6 +190,12 @@ class MagicHatViewModel(
         }
     }
 
+    fun refreshActiveHostStatus() {
+        launchAction {
+            repository.refreshActiveHost()
+        }
+    }
+
     fun launchInstance() {
         launchAction {
             val detail = repository.launchInstance(_uiState.value.launchTitleInput)

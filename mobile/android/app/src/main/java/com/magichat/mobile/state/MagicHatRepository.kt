@@ -38,6 +38,7 @@ interface MagicHatRepositoryContract {
     suspend fun pairRemote(pairUri: String, deviceName: String): PairedHostRecord
     suspend fun setActiveHost(hostId: String)
     suspend fun removeHost(hostId: String)
+    suspend fun refreshActiveHost(): PairedHostRecord?
 
     suspend fun listInstances(): List<TeamAppInstance>
     suspend fun listKnownRestoreRefs(): List<KnownRestoreRef>
@@ -196,6 +197,18 @@ class MagicHatRepository(
 
     override suspend fun removeHost(hostId: String) {
         pairingStore.removeHost(hostId)
+    }
+
+    override suspend fun refreshActiveHost(): PairedHostRecord? {
+        val context = requireActiveContext()
+        val record = context.record
+        val updated = if (isRemote(record)) {
+            refreshRemotePresence(record)
+        } else {
+            refreshLanPresence(record)
+        }
+        pairingStore.upsert(updated)
+        return updated
     }
 
     override suspend fun listInstances(): List<TeamAppInstance> {
@@ -427,6 +440,24 @@ class MagicHatRepository(
         )
         pairingStore.upsert(updated)
         return updated
+    }
+
+    private suspend fun refreshRemotePresence(record: PairedHostRecord): PairedHostRecord {
+        return try {
+            val hostState = withTransportRetry { relayApiFor(record).listHosts() }.hosts.firstOrNull { it.hostId == record.hostId }
+            record.copy(lastKnownHostPresence = hostState?.status ?: "offline")
+        } catch (_: IOException) {
+            record.copy(lastKnownHostPresence = "offline")
+        }
+    }
+
+    private suspend fun refreshLanPresence(record: PairedHostRecord): PairedHostRecord {
+        return try {
+            withTransportRetry { lanApiFor(record).getHealth() }
+            record.copy(lastKnownHostPresence = "online")
+        } catch (_: IOException) {
+            record.copy(lastKnownHostPresence = "offline")
+        }
     }
 
     private fun lanApiFor(record: PairedHostRecord) = apiFactory.create(connectionBaseUrl(record)) { record.sessionToken }

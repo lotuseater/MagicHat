@@ -21,7 +21,12 @@ public struct PairingView: View {
                     .foregroundStyle(store.pairingState == .paired ? .green : .secondary)
             }
 
-            HostContextCard(host: store.pairedHost, presence: store.activeHostPresence)
+            HostContextCard(
+                host: store.pairedHost,
+                presence: store.activeHostPresence,
+                onRefreshStatus: store.pairedHost == nil ? nil : { Task { await store.refreshCurrentHostStatus() } },
+                refreshEnabled: store.pairingState != .pairing && store.isPerformingRemoteAction == false
+            )
 
             TextField("magichat://pair?... or magichat://host:port?psk=...", text: $pairingURI)
 #if os(iOS)

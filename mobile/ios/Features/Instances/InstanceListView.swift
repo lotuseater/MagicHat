@@ -32,7 +32,9 @@ public struct InstanceListView: View {
             HostContextCard(
                 host: store.pairedHost,
                 presence: store.activeHostPresence,
-                activeInstanceID: store.activeInstanceID
+                activeInstanceID: store.activeInstanceID,
+                onRefreshStatus: store.pairedHost == nil ? nil : { Task { await store.refreshCurrentHostStatus() } },
+                refreshEnabled: store.isPerformingRemoteAction == false
             )
 
             if hasPairedHost == false {
