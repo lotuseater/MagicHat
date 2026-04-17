@@ -152,4 +152,66 @@ describe("instance launch/close race", () => {
     await fs.access(launchConfig.env.WIZARD_TEAM_APP_TEMP_DIR);
     await fs.access(launchConfig.env.WIZARD_TEAM_APP_RUN_ARTIFACT_DIR);
   });
+
+  it("applies fenrus launcher separately from shared startup defaults", async () => {
+    const sendCommand = vi.fn(async () => ({ status: "ok" }));
+    const manager = new LifecycleManager({
+      beaconStore: {
+        listInternalInstances: vi.fn(async () => []),
+        waitForNewInstance: vi.fn(async () => ({
+          pid: 701,
+          instance_id: "wizard_team_app_701_1000",
+          cmd_path: "cmd",
+          resp_path: "resp",
+        })),
+        pruneStaleEntries: vi.fn(async () => ({})),
+      },
+      ipcClient: {
+        sendCommand,
+      },
+      processController: {
+        launch: vi.fn(),
+        closeGracefully: vi.fn(async () => true),
+        forceKill: vi.fn(async () => true),
+      },
+      launchConfig: { command: "team-app.exe", args: [], waitMs: 200 },
+    });
+
+    await manager.launchInstance({
+      task: "Hej",
+      startupProfile: {
+        team_mode: "full",
+        launcher_preset: "claude",
+        fenrus_launcher: "codex",
+      },
+    });
+
+    expect(sendCommand.mock.calls).toEqual([
+      [
+        expect.objectContaining({ pid: 701 }),
+        expect.objectContaining({
+          cmd: "set_startup_profile",
+          team_mode: "full",
+          launcher_preset: "claude",
+        }),
+        expect.objectContaining({ requireOk: true }),
+      ],
+      [
+        expect.objectContaining({ pid: 701 }),
+        expect.objectContaining({
+          cmd: "set_startup_profile",
+          fenrus_launcher: "codex",
+        }),
+        expect.objectContaining({ requireOk: true }),
+      ],
+      [
+        expect.objectContaining({ pid: 701 }),
+        expect.objectContaining({
+          cmd: "submit_initial_prompt",
+          prompt: "Hej",
+        }),
+        expect.objectContaining({ requireOk: true }),
+      ],
+    ]);
+  });
 });

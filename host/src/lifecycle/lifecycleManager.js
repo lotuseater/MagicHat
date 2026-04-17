@@ -61,10 +61,24 @@ export class LifecycleManager {
         timeoutMs: startupTimeoutMs ?? launchConfig.waitMs,
       });
 
-      if (startupProfile && Object.keys(startupProfile).length > 0) {
+      const fenrusLauncher = startupProfile?.fenrus_launcher;
+      const sharedStartupProfile = startupProfile
+        ? Object.fromEntries(
+            Object.entries(startupProfile).filter(([key, value]) => key !== "fenrus_launcher" && value !== undefined),
+          )
+        : null;
+
+      if (sharedStartupProfile && Object.keys(sharedStartupProfile).length > 0) {
         await this.ipcClient.sendCommand(launched, {
           cmd: "set_startup_profile",
-          ...startupProfile,
+          ...sharedStartupProfile,
+        }, { requireOk: true });
+      }
+
+      if (typeof fenrusLauncher === "string" && fenrusLauncher.length > 0) {
+        await this.ipcClient.sendCommand(launched, {
+          cmd: "set_startup_profile",
+          fenrus_launcher: fenrusLauncher,
         }, { requireOk: true });
       }
 

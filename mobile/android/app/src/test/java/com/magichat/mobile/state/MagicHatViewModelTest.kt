@@ -270,6 +270,51 @@ class MagicHatViewModelTest {
         assertThat(state.launchFenrusLauncher).isEqualTo(FenrusLauncherOption.APP_DEFAULT)
     }
 
+    @Test
+    fun streamRefreshFailureDoesNotClearSelectedInstance() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository()
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.openInstance("instance-1")
+        advanceUntilIdle()
+        repository.detailFailure = IllegalStateException("HTTP 500 Internal Server Error")
+
+        repository.emitObservedEvent(InstanceEvent(type = "message", message = "update"))
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(state.selectedInstanceId).isEqualTo("instance-1")
+        assertThat(state.selectedDetail?.instance?.instanceId).isEqualTo("instance-1")
+    }
+
+    @Test
+    fun refreshInstancesKeepsSelectedDetailWhenListTemporarilyOmitsIt() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository()
+        repository.instancesResult = listOf(instance("instance-1"))
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.openInstance("instance-1")
+        advanceUntilIdle()
+        repository.instancesResult = emptyList()
+
+        viewModel.refreshInstances()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(state.selectedInstanceId).isEqualTo("instance-1")
+        assertThat(state.selectedDetail?.instance?.instanceId).isEqualTo("instance-1")
+    }
+
     private fun pairedHost(
         hostId: String,
         displayName: String,
@@ -303,8 +348,8 @@ class MagicHatViewModelTest {
 
 @OptIn(ExperimentalCoroutinesApi::class)
 private class FakeMagicHatRepository(
-    private val instancesResult: List<TeamAppInstance> = emptyList(),
-    private val restoreRefsResult: List<KnownRestoreRef> = emptyList(),
+    var instancesResult: List<TeamAppInstance> = emptyList(),
+    var restoreRefsResult: List<KnownRestoreRef> = emptyList(),
 ) : MagicHatRepositoryContract {
     val launchInstanceCalls = mutableListOf<LaunchInvocation>()
     val pairingStateFlow = MutableStateFlow(PairingSnapshot(emptyList(), null))
@@ -317,6 +362,9 @@ private class FakeMagicHatRepository(
     var refreshActiveHostCalls = 0
     var stopInstanceEventsCalls = 0
     var launchInstanceResult: InstanceDetail = InstanceDetail(instance = instance("launched"))
+    var detailFailure: Throwable? = null
+    private var observedOnEvent: ((InstanceEvent) -> Unit)? = null
+    private var observedOnState: ((String) -> Unit)? = null
 
     override val pairingState: Flow<PairingSnapshot> = pairingStateFlow
 
@@ -375,6 +423,7 @@ private class FakeMagicHatRepository(
     }
 
     override suspend fun getInstanceDetail(instanceId: String): InstanceDetail {
+        detailFailure?.let { throw it }
         return InstanceDetail(instance = instance(instanceId))
     }
 
@@ -411,11 +460,17 @@ private class FakeMagicHatRepository(
         onEvent: (InstanceEvent) -> Unit,
         onState: (String) -> Unit,
     ) {
+        observedOnEvent = onEvent
+        observedOnState = onState
         onState("connected")
     }
 
     override fun stopInstanceEvents() {
         stopInstanceEventsCalls += 1
+    }
+
+    fun emitObservedEvent(event: InstanceEvent) {
+        observedOnEvent?.invoke(event)
     }
 
     private fun instance(id: String): TeamAppInstance {

@@ -519,6 +519,13 @@ class MagicHatRepository(
         } catch (io: IOException) {
             delay(800)
             block()
+        } catch (http: HttpException) {
+            if (http.code() in 500..599) {
+                delay(500)
+                block()
+            } else {
+                throw http
+            }
         }
     }
 

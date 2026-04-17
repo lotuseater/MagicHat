@@ -15,6 +15,7 @@ import com.magichat.mobile.model.TeamAppInstance
 import com.magichat.mobile.model.TeamModeOption
 import com.magichat.mobile.security.DeviceKeyStore
 import com.magichat.mobile.storage.PairingStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -151,15 +152,15 @@ class MagicHatViewModel(
         _uiState.update { it.copy(screen = screen) }
         when (screen) {
             MagicHatScreen.INSTANCES -> {
-                viewModelScope.launch {
-                    runCatching { loadCurrentHostData() }
+                launchBackgroundRefresh {
+                    loadCurrentHostData()
                 }
             }
 
             MagicHatScreen.INSTANCE_DETAIL -> {
                 val instanceId = _uiState.value.selectedInstanceId ?: return
-                viewModelScope.launch {
-                    runCatching { refreshSelectedInstanceDetail(instanceId, refreshCollections = false) }
+                launchBackgroundRefresh {
+                    refreshSelectedInstanceDetail(instanceId, refreshCollections = false)
                 }
             }
 
@@ -390,7 +391,7 @@ class MagicHatViewModel(
                 _uiState.update { state ->
                     state.copy(streamEvents = (state.streamEvents + event).takeLast(200))
                 }
-                viewModelScope.launch {
+                launchBackgroundRefresh {
                     refreshSelectedInstanceDetail(instanceId, refreshCollections = false)
                 }
             },
@@ -437,23 +438,28 @@ class MagicHatViewModel(
         instances: List<TeamAppInstance>,
         restoreRefs: List<KnownRestoreRef>,
     ) {
-        val selectedInstanceId = _uiState.value.selectedInstanceId
-        val selectionStillExists = selectedInstanceId != null && instances.any { it.instanceId == selectedInstanceId }
+        val state = _uiState.value
+        val selectedInstanceId = state.selectedInstanceId
+        val selectedDetailId = state.selectedDetail?.instance?.instanceId
+        val selectionStillExists = selectedInstanceId != null && (
+            instances.any { it.instanceId == selectedInstanceId } ||
+                selectedDetailId == selectedInstanceId
+            )
         if (!selectionStillExists) {
             repository.stopInstanceEvents()
         }
-        _uiState.update { state ->
-            state.copy(
+        _uiState.update { current ->
+            current.copy(
                 instances = instances,
                 knownRestoreRefs = restoreRefs,
-                selectedInstanceId = if (selectionStillExists) state.selectedInstanceId else null,
-                selectedDetail = if (selectionStillExists) state.selectedDetail else null,
-                selectedTerminalAgent = if (selectionStillExists) state.selectedTerminalAgent else null,
-                streamEvents = if (selectionStillExists) state.streamEvents else emptyList(),
-                streamStatus = if (selectionStillExists) state.streamStatus else "idle",
-                promptInput = if (selectionStillExists) state.promptInput else "",
-                followUpInput = if (selectionStillExists) state.followUpInput else "",
-                restoreSessionInput = if (selectionStillExists) state.restoreSessionInput else "",
+                selectedInstanceId = if (selectionStillExists) current.selectedInstanceId else null,
+                selectedDetail = if (selectionStillExists) current.selectedDetail else null,
+                selectedTerminalAgent = if (selectionStillExists) current.selectedTerminalAgent else null,
+                streamEvents = if (selectionStillExists) current.streamEvents else emptyList(),
+                streamStatus = if (selectionStillExists) current.streamStatus else "idle",
+                promptInput = if (selectionStillExists) current.promptInput else "",
+                followUpInput = if (selectionStillExists) current.followUpInput else "",
+                restoreSessionInput = if (selectionStillExists) current.restoreSessionInput else "",
             )
         }
     }
@@ -487,6 +493,18 @@ class MagicHatViewModel(
                 }
             }
             _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    private fun launchBackgroundRefresh(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                block()
+            }.onFailure { throwable ->
+                if (throwable is CancellationException) {
+                    throw throwable
+                }
+            }
         }
     }
 
