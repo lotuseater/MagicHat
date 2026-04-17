@@ -155,9 +155,10 @@ iOS core package tests:
 ## Notes
 
 - The Android client still assumes a manually entered base URL for direct LAN pairing unless you use a `magichat://...` pairing URI.
-- The Android client now supports both LAN pairing and v2 remote pairing from a `magichat://pair?...` URI.
+- The Android client now supports both LAN pairing and v2 remote pairing from a `magichat://pair?...` URI, including Android deep-link intake for QR scans that resolve to that URI.
 - Remote relay URLs must use HTTPS unless they target a true local development relay such as `localhost`, `127.0.0.1`, or the Android emulator host alias `10.0.2.2`.
 - Mobile clients now fail closed on unknown relay certificate pinset versions instead of silently accepting them.
+- Production relay pinning is configured by having the relay advertise `MAGICHAT_RELAY_CERTIFICATE_PINSET_VERSION` and building Android with matching pin hashes such as `MAGICHAT_ANDROID_RELAY_PINSET_V1=sha256/...[,sha256/...]`.
 - Remote pairing requires the host-local admin surface on `http://127.0.0.1:<host-port>/admin/v2/remote/*` to generate a bootstrap URI/QR and approve new devices.
 - The relay is trusted for payload visibility in v2.0, but the envelopes and stored metadata are versioned so later end-to-end encrypted payloads can be added without breaking paired hosts.
 - LAN and remote restore now both prefer opaque host-generated restore refs; direct LAN callers may still send a raw `session_restore.json` path for compatibility/debugging, but the mobile apps no longer need to expose that path model by default.
