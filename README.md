@@ -52,6 +52,75 @@ The concrete wire contract and threat model for the first implementation are now
 - [docs/architecture/remote_protocol_v2.md](docs/architecture/remote_protocol_v2.md)
 - [docs/security/remote_threat_model_v2.md](docs/security/remote_threat_model_v2.md)
 
+## Quick Start: Pair an Android Device
+
+There are two pairing modes. Pick the one that matches where the phone will live.
+
+### A. LAN pairing (same Wi-Fi as the PC) — no QR needed
+
+1. Build/install the Android app once:
+   ```bash
+   pwsh scripts/mobile-validation/build_and_run_android.ps1
+   ```
+   (Or double-click `scripts/mobile-validation/build_and_run_android.bat`.) This builds the debug APK and `adb install`s it on an attached phone or running emulator.
+2. Start the host on the PC:
+   ```bash
+   cd host
+   npm install        # first run only
+   npm start
+   ```
+   It prints, e.g.:
+   ```
+   MagicHat host listening on http://0.0.0.0:18765
+   Pairing code: 4F7K-9PLQ (expires at 2026-04-17T20:05:00.000Z)
+   ```
+   The pairing code lasts 5 min; fetch a fresh one any time without restarting via:
+   ```bash
+   node scripts/print_pairing_code.js
+   ```
+3. Find the PC's LAN IP (`ipconfig` on Windows → look for IPv4 on your Wi-Fi adapter, e.g. `192.168.1.10`).
+4. On the phone, open MagicHat and on the **Paired PC Selection** screen:
+   - **PC Host Base URL (LAN)**: `http://192.168.1.10:18765/`
+   - Tap **Probe Host** to confirm it answers.
+   - **One-Time Pairing Code**: paste the code from step 2.
+   - Tap **Pair Host**.
+5. Instances from every running Team App on the PC appear under that host. Use the host list to switch between paired PCs.
+
+### B. Remote QR pairing (phone off-LAN, via relay)
+
+Needs a reachable relay. For local development the relay can run on loopback HTTP; for real off-LAN use it must serve HTTPS with a cert whose pin matches the Android build.
+
+1. Start the relay (dev loopback):
+   ```bash
+   ./scripts/remote-validation/start_relay.sh
+   ```
+   This binds `127.0.0.1:18795` over plain HTTP (allowed only because it is loopback). For non-loopback you must set `MAGICHAT_RELAY_TLS_CERT_PATH` + `MAGICHAT_RELAY_TLS_KEY_PATH`.
+2. Start the host pointed at the relay:
+   ```bash
+   cd host
+   MAGICHAT_RELAY_URL=http://127.0.0.1:18795 \
+   MAGICHAT_ALLOW_INSECURE_RELAY=1 \
+   npm start
+   ```
+   (Drop `MAGICHAT_ALLOW_INSECURE_RELAY=1` for an HTTPS relay.) The host opens a WebSocket back to the relay and stays online.
+3. From the **PC's own browser/terminal** (the admin surface is locked to localhost), generate a pairing QR:
+   ```bash
+   curl -s -X POST http://127.0.0.1:18765/admin/v2/remote/bootstrap > bootstrap.json
+   jq -r .qr_svg bootstrap.json > bootstrap.svg
+   start bootstrap.svg     # Windows: opens the QR in your default viewer
+   ```
+   The JSON also contains `pair_uri` (the raw `magichat://pair?...` URL) if you prefer to send that directly.
+4. On the phone: point the camera at the QR. The deep-link opens the MagicHat app and fills the **Remote Pair URI** field. Tap **Pair Remote**. (If the camera doesn't open the app, paste the `pair_uri` into the field manually.)
+5. The phone registers a pending claim with the relay. Approve it from the PC:
+   ```bash
+   curl -s http://127.0.0.1:18765/admin/v2/remote/pending-devices
+   # → { "pending_approvals": [ { "claim_id": "...", "device_label": "...", ... } ] }
+   curl -X POST http://127.0.0.1:18765/admin/v2/remote/pending-devices/<claim_id>/approve
+   ```
+6. The phone completes registration over the relay and the instance list appears. From now on the device reconnects on its own; revoke it with `DELETE /admin/v2/remote/devices/<device_id>`.
+
+For production: set `MAGICHAT_RELAY_CERTIFICATE_PINSET_VERSION=v1` on the relay and build the Android app with the matching pin hashes via `MAGICHAT_ANDROID_RELAY_PINSET_V1=sha256/...[,sha256/...]` (Gradle property or env var). Mobile clients fail closed on unknown pinset versions.
+
 ## Development
 
 Host tests:
