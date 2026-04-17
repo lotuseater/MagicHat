@@ -432,7 +432,7 @@ export async function createRelayRuntime(options = {}) {
         access_token_expires_at: new Date(now + config.accessTokenTtlMs).toISOString(),
         refresh_token: refreshToken,
         refresh_token_expires_at: new Date(now + config.refreshTokenTtlMs).toISOString(),
-        certificate_pinset_version: "dev-insecure",
+        certificate_pinset_version: config.certificatePinsetVersion,
       });
     }),
   );

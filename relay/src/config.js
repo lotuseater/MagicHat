@@ -14,6 +14,7 @@ export function readRelayConfig(env = process.env) {
   const databaseUrl = env.MAGICHAT_RELAY_DATABASE_URL || "";
   const tlsCertPath = env.MAGICHAT_RELAY_TLS_CERT_PATH || "";
   const tlsKeyPath = env.MAGICHAT_RELAY_TLS_KEY_PATH || "";
+  const certificatePinsetVersion = env.MAGICHAT_RELAY_CERTIFICATE_PINSET_VERSION || "dev-insecure";
 
   return {
     listenHost: env.MAGICHAT_RELAY_BIND_HOST || "127.0.0.1",
@@ -37,5 +38,6 @@ export function readRelayConfig(env = process.env) {
       certPath: tlsCertPath,
       keyPath: tlsKeyPath,
     },
+    certificatePinsetVersion,
   };
 }
