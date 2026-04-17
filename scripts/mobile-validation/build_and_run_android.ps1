@@ -77,9 +77,11 @@ Write-Host "[deploy] APK ready: $ApkPath ($apkSize MB)" -ForegroundColor Green
 # -- Step 2: Detect devices --
 Write-Host "[deploy] Scanning for attached Android devices..."
 $devicesOutput = & $adb devices 2>&1
-$deviceLines = $devicesOutput |
-    Select-Object -Skip 1 |
-    Where-Object { $_ -match "^\S+\s+device$" }
+$deviceLines = @(
+    $devicesOutput |
+        Select-Object -Skip 1 |
+        Where-Object { $_ -match "^\S+\s+device$" }
+)
 
 if (-not $deviceLines -or $deviceLines.Count -eq 0) {
     Write-Host ""
@@ -98,7 +100,11 @@ if (-not $deviceLines -or $deviceLines.Count -eq 0) {
 }
 
 # -- Step 3: Install on first available device --
-$firstDevice = ($deviceLines[0] -split "\s+")[0]
+$firstDevice = [regex]::Match($deviceLines[0], "^(?<serial>\S+)\s+device$").Groups["serial"].Value
+if (-not $firstDevice) {
+    Write-Error "[deploy] Failed to parse device serial from adb output: $($deviceLines[0])"
+    exit 1
+}
 Write-Host "[deploy] Target device: $firstDevice" -ForegroundColor Cyan
 
 Write-Host "[deploy] Installing APK..."

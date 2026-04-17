@@ -44,4 +44,14 @@ class RemotePairingUriTest {
 
         assertThat(parsed.relayUrl).isEqualTo("http://10.0.2.2:18795/")
     }
+
+    @Test
+    fun allowsPrivateLanRelayPairUri() {
+        val exp = Instant.now().plus(5, ChronoUnit.MINUTES).toString()
+        val uri = "magichat://pair?v=2&relay=http%3A%2F%2F192.168.0.104%3A18795&host_id=host_1&host_name=Office%20PC&bootstrap_token=bt_123&host_fingerprint=sha256%3Atest&exp=$exp"
+
+        val parsed = RemotePairingUri.parse(uri)
+
+        assertThat(parsed.relayUrl).isEqualTo("http://192.168.0.104:18795/")
+    }
 }

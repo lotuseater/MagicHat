@@ -51,7 +51,27 @@ internal object RelayTrustPolicy {
 
     private fun isDevelopmentRelayHost(host: String): Boolean {
         val normalized = host.trim().trim('[', ']').lowercase()
-        return normalized in developmentHosts || normalized.startsWith("127.")
+        return normalized in developmentHosts ||
+            normalized.startsWith("127.") ||
+            isPrivateIpv4Host(normalized)
+    }
+
+    private fun isPrivateIpv4Host(host: String): Boolean {
+        val octets = host.split('.')
+        if (octets.size != 4) {
+            return false
+        }
+        val numbers = octets.map { it.toIntOrNull() ?: return false }
+        if (numbers.any { it !in 0..255 }) {
+            return false
+        }
+
+        return when {
+            numbers[0] == 10 -> true
+            numbers[0] == 172 && numbers[1] in 16..31 -> true
+            numbers[0] == 192 && numbers[1] == 168 -> true
+            else -> false
+        }
     }
 
     private fun parsePins(rawPins: String): List<String> {

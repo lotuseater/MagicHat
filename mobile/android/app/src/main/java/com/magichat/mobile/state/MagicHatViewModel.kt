@@ -26,7 +26,7 @@ enum class MagicHatScreen {
 
 data class MagicHatUiState(
     val screen: MagicHatScreen = MagicHatScreen.PAIRED_PC_SELECTION,
-    val baseUrlInput: String = "http://192.168.1.10:8787/",
+    val baseUrlInput: String = "http://192.168.1.10:18765/",
     val remotePairUriInput: String = "",
     val pairCodeInput: String = "",
     val launchTitleInput: String = "",
@@ -42,6 +42,7 @@ data class MagicHatUiState(
     val knownRestoreRefs: List<KnownRestoreRef> = emptyList(),
     val selectedInstanceId: String? = null,
     val selectedDetail: InstanceDetail? = null,
+    val selectedTerminalAgent: String? = null,
     val streamEvents: List<InstanceEvent> = emptyList(),
     val streamStatus: String = "idle",
     val isLoading: Boolean = false,
@@ -113,8 +114,34 @@ class MagicHatViewModel(
         _uiState.update { it.copy(restoreSessionInput = value) }
     }
 
+    fun selectTerminalAgent(agentId: String) {
+        _uiState.update { state ->
+            if (state.selectedDetail?.terminalsByAgent?.containsKey(agentId) == true) {
+                state.copy(selectedTerminalAgent = agentId)
+            } else {
+                state
+            }
+        }
+    }
+
     fun navigateTo(screen: MagicHatScreen) {
         _uiState.update { it.copy(screen = screen) }
+        when (screen) {
+            MagicHatScreen.INSTANCES -> {
+                viewModelScope.launch {
+                    runCatching { loadCurrentHostData() }
+                }
+            }
+
+            MagicHatScreen.INSTANCE_DETAIL -> {
+                val instanceId = _uiState.value.selectedInstanceId ?: return
+                viewModelScope.launch {
+                    runCatching { refreshSelectedInstanceDetail(instanceId, refreshCollections = false) }
+                }
+            }
+
+            MagicHatScreen.PAIRED_PC_SELECTION -> Unit
+        }
     }
 
     fun clearError() {
@@ -209,6 +236,7 @@ class MagicHatViewModel(
                     knownRestoreRefs = restoreRefs,
                     selectedInstanceId = detail.instance.instanceId,
                     selectedDetail = detail,
+                    selectedTerminalAgent = preferredTerminalAgent(detail, it.selectedTerminalAgent),
                     screen = MagicHatScreen.INSTANCE_DETAIL,
                     launchTitleInput = "",
                 )
@@ -224,6 +252,7 @@ class MagicHatViewModel(
                 it.copy(
                     selectedInstanceId = instanceId,
                     selectedDetail = detail,
+                    selectedTerminalAgent = preferredTerminalAgent(detail, it.selectedTerminalAgent),
                     screen = MagicHatScreen.INSTANCE_DETAIL,
                 )
             }
@@ -261,6 +290,7 @@ class MagicHatViewModel(
             }
             repository.sendPrompt(instanceId, prompt)
             _uiState.update { it.copy(promptInput = "") }
+            refreshSelectedInstanceDetail(instanceId, refreshCollections = true)
         }
     }
 
@@ -273,6 +303,7 @@ class MagicHatViewModel(
             }
             repository.sendFollowUp(instanceId, followUp)
             _uiState.update { it.copy(followUpInput = "") }
+            refreshSelectedInstanceDetail(instanceId, refreshCollections = true)
         }
     }
 
@@ -280,16 +311,7 @@ class MagicHatViewModel(
         launchAction {
             val instanceId = _uiState.value.selectedInstanceId ?: error("Select instance first")
             repository.answerTrustPrompt(instanceId, approved)
-            val detail = repository.getInstanceDetail(instanceId)
-            val instances = repository.listInstances()
-            val restoreRefs = repository.listKnownRestoreRefs()
-            _uiState.update {
-                it.copy(
-                    selectedDetail = detail,
-                    instances = instances,
-                    knownRestoreRefs = restoreRefs,
-                )
-            }
+            refreshSelectedInstanceDetail(instanceId, refreshCollections = true)
         }
     }
 
@@ -313,6 +335,7 @@ class MagicHatViewModel(
                     knownRestoreRefs = restoreRefs,
                     selectedInstanceId = detail.instance.instanceId,
                     selectedDetail = detail,
+                    selectedTerminalAgent = preferredTerminalAgent(detail, it.selectedTerminalAgent),
                     screen = MagicHatScreen.INSTANCE_DETAIL,
                 )
             }
@@ -325,8 +348,14 @@ class MagicHatViewModel(
         repository.observeInstanceEvents(
             instanceId = instanceId,
             onEvent = { event ->
+                if (event.type == "heartbeat" || event.type == "beacon_heartbeat") {
+                    return@observeInstanceEvents
+                }
                 _uiState.update { state ->
                     state.copy(streamEvents = (state.streamEvents + event).takeLast(200))
+                }
+                viewModelScope.launch {
+                    refreshSelectedInstanceDetail(instanceId, refreshCollections = false)
                 }
             },
             onState = { streamState ->
@@ -351,6 +380,23 @@ class MagicHatViewModel(
         reconcileInstanceContext(instances, restoreRefs)
     }
 
+    private suspend fun refreshSelectedInstanceDetail(
+        instanceId: String,
+        refreshCollections: Boolean,
+    ) {
+        val detail = repository.getInstanceDetail(instanceId)
+        val instances = if (refreshCollections) repository.listInstances() else _uiState.value.instances
+        val restoreRefs = if (refreshCollections) repository.listKnownRestoreRefs() else _uiState.value.knownRestoreRefs
+        _uiState.update { state ->
+            state.copy(
+                selectedDetail = detail,
+                selectedTerminalAgent = preferredTerminalAgent(detail, state.selectedTerminalAgent),
+                instances = instances,
+                knownRestoreRefs = restoreRefs,
+            )
+        }
+    }
+
     private fun reconcileInstanceContext(
         instances: List<TeamAppInstance>,
         restoreRefs: List<KnownRestoreRef>,
@@ -366,6 +412,7 @@ class MagicHatViewModel(
                 knownRestoreRefs = restoreRefs,
                 selectedInstanceId = if (selectionStillExists) state.selectedInstanceId else null,
                 selectedDetail = if (selectionStillExists) state.selectedDetail else null,
+                selectedTerminalAgent = if (selectionStillExists) state.selectedTerminalAgent else null,
                 streamEvents = if (selectionStillExists) state.streamEvents else emptyList(),
                 streamStatus = if (selectionStillExists) state.streamStatus else "idle",
                 promptInput = if (selectionStillExists) state.promptInput else "",
@@ -383,6 +430,7 @@ class MagicHatViewModel(
                 knownRestoreRefs = emptyList(),
                 selectedInstanceId = null,
                 selectedDetail = null,
+                selectedTerminalAgent = null,
                 streamEvents = emptyList(),
                 streamStatus = "idle",
                 promptInput = "",
@@ -407,6 +455,13 @@ class MagicHatViewModel(
     }
 
     companion object {
+        private fun preferredTerminalAgent(detail: InstanceDetail, current: String?): String? {
+            if (current != null && detail.terminalsByAgent.containsKey(current)) {
+                return current
+            }
+            return detail.terminalsByAgent.keys.sorted().firstOrNull()
+        }
+
         fun provideFactory(context: Context): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")

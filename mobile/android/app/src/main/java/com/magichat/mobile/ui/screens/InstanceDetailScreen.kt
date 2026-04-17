@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -28,6 +29,7 @@ fun InstanceDetailScreen(
     onSendFollowUp: () -> Unit,
     onTrustApproved: () -> Unit,
     onTrustDenied: () -> Unit,
+    onSelectTerminalAgent: (String) -> Unit,
     onRefreshActiveHost: () -> Unit,
 ) {
     val detail = state.selectedDetail
@@ -77,8 +79,53 @@ fun InstanceDetailScreen(
                         Text("Latest output:")
                         Text(detail.latestOutput)
                     }
+                    if (!detail.summaryText.isNullOrBlank()) {
+                        Text("Summary:")
+                        Text(detail.summaryText)
+                    }
                     detail.restoreRef?.takeIf { it.isNotBlank() }?.let {
                         Text("Restore ref: $it")
+                    }
+                }
+            }
+
+            if (detail.terminalsByAgent.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Team Structure", style = MaterialTheme.typography.titleSmall)
+                        detail.terminalsByAgent.keys.sorted().forEach { agentId ->
+                            val selected = state.selectedTerminalAgent == agentId
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { onSelectTerminalAgent(agentId) },
+                                    enabled = state.isLoading.not() && selected.not(),
+                                ) {
+                                    Text(if (selected) "$agentId (Selected)" else agentId)
+                                }
+                            }
+                        }
+                        state.selectedTerminalAgent?.let { agentId ->
+                            detail.terminalsByAgent[agentId]?.let { terminal ->
+                                Text("Terminal: $agentId", style = MaterialTheme.typography.titleSmall)
+                                Text(terminal)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (detail.chat.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .padding(10.dp)
+                            .heightIn(min = 120.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Chat", style = MaterialTheme.typography.titleSmall)
+                        detail.chat.forEach { entry ->
+                            Text(formatChatEntry(entry))
+                        }
                     }
                 }
             }
@@ -144,19 +191,32 @@ fun InstanceDetailScreen(
             ) {
                 Text("Output stream", style = MaterialTheme.typography.titleSmall)
                 if (state.streamEvents.isEmpty()) {
-                    Text("No events yet")
+                    Text("No non-heartbeat events yet")
                 }
                 state.streamEvents.forEach { event ->
-                    val line = listOfNotNull(
-                        event.updatedAt,
-                        event.type,
-                        event.health,
-                        event.message,
-                        event.outputChunk,
-                    ).joinToString(" | ")
-                    Text(line)
+                    Text(formatEventLine(event))
                 }
             }
         }
     }
+}
+
+private fun formatEventLine(event: com.magichat.mobile.model.InstanceEvent): String {
+    return listOfNotNull(
+        event.updatedAt,
+        event.type,
+        event.health,
+        event.message,
+        event.outputChunk,
+    ).joinToString(" | ")
+}
+
+private fun formatChatEntry(entry: Map<String, Any?>): String {
+    val speaker = listOf("sender", "role", "agent_id")
+        .firstNotNullOfOrNull { key -> entry[key]?.toString()?.takeIf { it.isNotBlank() } }
+        ?: "message"
+    val text = listOf("text", "message", "content")
+        .firstNotNullOfOrNull { key -> entry[key]?.toString()?.takeIf { it.isNotBlank() } }
+        ?: entry.toString()
+    return "$speaker: $text"
 }

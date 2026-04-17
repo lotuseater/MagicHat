@@ -19,6 +19,7 @@ import com.magichat.mobile.model.SubmissionReceipt
 import com.magichat.mobile.model.TeamAppInstance
 import com.magichat.mobile.model.TrustRequest
 import com.magichat.mobile.network.MagicHatApiFactory
+import com.magichat.mobile.network.MoshiFactory
 import com.magichat.mobile.network.RemotePairingUri
 import com.magichat.mobile.network.SseEventStreamClient
 import com.magichat.mobile.security.DeviceKeyStoreContract
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.Flow
 import java.io.IOException
 import java.net.URI
 import java.time.Instant
+import retrofit2.HttpException
 
 interface MagicHatRepositoryContract {
     val pairingState: Flow<PairingSnapshot>
@@ -67,9 +69,16 @@ class MagicHatRepository(
     private val sseEventStreamClient: SseEventStreamClient = SseEventStreamClient(apiFactory),
 ) : MagicHatRepositoryContract {
 
+    private data class ApiErrorResponse(
+        val error: String? = null,
+        val detail: String? = null,
+    )
+
     private data class ActiveContext(
         val record: PairedHostRecord,
     )
+
+    private val apiErrorAdapter = MoshiFactory.instance.adapter(ApiErrorResponse::class.java)
 
     override val pairingState: Flow<PairingSnapshot> = pairingStore.state
 
@@ -128,68 +137,74 @@ class MagicHatRepository(
     }
 
     override suspend fun pairRemote(pairUri: String, deviceName: String): PairedHostRecord {
-        val parsed = RemotePairingUri.parse(pairUri)
-        val identity = deviceKeyStore.getOrCreate()
-        val relayApi = apiFactory.createRelay(parsed.relayUrl, { null })
+        try {
+            val parsed = RemotePairingUri.parse(pairUri)
+            val identity = deviceKeyStore.getOrCreate()
+            val relayApi = apiFactory.createRelay(parsed.relayUrl, { null })
 
-        val claim = withTransportRetry {
-            relayApi.claimBootstrap(
-                RemotePairClaimRequest(
-                    bootstrapToken = parsed.bootstrapToken,
-                    deviceName = deviceName,
-                    platform = "android",
-                    devicePublicKey = identity.publicKeyBase64,
-                ),
-            )
-        }
-
-        var approvedChallenge: String? = null
-        for (attempt in 0 until 60) {
-            val status = relayApi.getClaimStatus(claim.claimId)
-            when (status.status.lowercase()) {
-                "approved" -> {
-                    approvedChallenge = status.challenge
-                    break
-                }
-                "rejected" -> error("Pairing was rejected on the host")
-                "completed" -> error("Pairing claim is no longer available")
+            val claim = withTransportRetry {
+                relayApi.claimBootstrap(
+                    RemotePairClaimRequest(
+                        bootstrapToken = parsed.bootstrapToken,
+                        deviceName = deviceName,
+                        platform = "android",
+                        devicePublicKey = identity.publicKeyBase64,
+                    ),
+                )
             }
-            delay(1_000)
-        }
 
-        val challenge = approvedChallenge ?: error("Timed out waiting for host approval")
-        val registration = withTransportRetry {
-            relayApi.completeRegistration(
-                RemoteDeviceRegisterRequest(
-                    claimId = claim.claimId,
-                    challenge = challenge,
-                    signature = deviceKeyStore.sign(challenge),
-                ),
+            var approvedChallenge: String? = null
+            for (attempt in 0 until 60) {
+                val status = withTransportRetry {
+                    relayApi.getClaimStatus(claim.claimId)
+                }
+                when (status.status.lowercase()) {
+                    "approved" -> {
+                        approvedChallenge = status.challenge
+                        break
+                    }
+                    "rejected" -> error("Pairing was rejected on the host")
+                    "completed" -> error("Pairing claim is no longer available")
+                }
+                delay(1_000)
+            }
+
+            val challenge = approvedChallenge ?: error("Timed out waiting for host approval")
+            val registration = withTransportRetry {
+                relayApi.completeRegistration(
+                    RemoteDeviceRegisterRequest(
+                        claimId = claim.claimId,
+                        challenge = challenge,
+                        signature = deviceKeyStore.sign(challenge),
+                    ),
+                )
+            }
+            val remoteDisplayName = registration.hostName
+                ?.takeUnless { it.isBlank() }
+                ?: claim.hostName
+                    .takeUnless { it.isBlank() }
+                ?: parsed.hostName
+
+            val record = PairedHostRecord(
+                hostId = registration.hostId,
+                displayName = remoteDisplayName,
+                baseUrl = parsed.relayUrl,
+                sessionToken = registration.accessToken,
+                pairedAt = Instant.now().toString(),
+                mode = HostConnectionMode.REMOTE_RELAY.name.lowercase(),
+                relayUrl = parsed.relayUrl,
+                deviceId = registration.deviceId,
+                refreshToken = registration.refreshToken,
+                accessTokenExpiresAt = registration.accessTokenExpiresAt,
+                refreshTokenExpiresAt = registration.refreshTokenExpiresAt,
+                certificatePinsetVersion = registration.certificatePinsetVersion,
+                lastKnownHostPresence = "unknown",
             )
+            pairingStore.upsert(record)
+            return record
+        } catch (throwable: Throwable) {
+            throw toUserFacingRemotePairError(throwable)
         }
-        val remoteDisplayName = registration.hostName
-            ?.takeUnless { it.isBlank() }
-            ?: claim.hostName
-                .takeUnless { it.isBlank() }
-            ?: parsed.hostName
-
-        val record = PairedHostRecord(
-            hostId = registration.hostId,
-            displayName = remoteDisplayName,
-            baseUrl = parsed.relayUrl,
-            sessionToken = registration.accessToken,
-            pairedAt = Instant.now().toString(),
-            mode = HostConnectionMode.REMOTE_RELAY.name.lowercase(),
-            relayUrl = parsed.relayUrl,
-            deviceId = registration.deviceId,
-            refreshToken = registration.refreshToken,
-            accessTokenExpiresAt = registration.accessTokenExpiresAt,
-            refreshTokenExpiresAt = registration.refreshTokenExpiresAt,
-            certificatePinsetVersion = registration.certificatePinsetVersion,
-            lastKnownHostPresence = "unknown",
-        )
-        pairingStore.upsert(record)
-        return record
     }
 
     override suspend fun activeHost(): PairedHostRecord? {
@@ -492,6 +507,30 @@ class MagicHatRepository(
         }
     }
 
+    private fun toUserFacingRemotePairError(throwable: Throwable): Throwable {
+        if (throwable !is HttpException) {
+            return throwable
+        }
+
+        val payload = throwable.response()?.errorBody()?.use { body ->
+            runCatching { apiErrorAdapter.fromJson(body.string()) }.getOrNull()
+        }
+        val code = payload?.error?.trim().orEmpty()
+        val message = when (code) {
+            "bootstrap_token_used" -> "This pairing QR was already used. Generate a fresh QR on the host."
+            "bootstrap_token_expired" -> "This pairing QR expired. Generate a fresh QR on the host."
+            "claim_rejected" -> "Pairing was rejected on the host"
+            "claim_not_ready" -> "Pairing did not finish on the relay. Keep the host pairing window open and try a fresh QR."
+            "claim_not_found" -> "Pairing claim is no longer available. Generate a fresh QR on the host."
+            "host_offline" -> "The host is offline. Keep the pairing window open and try again."
+            else -> payload?.detail?.takeIf { it.isNotBlank() }
+                ?: payload?.error?.takeIf { it.isNotBlank() }?.replace('_', ' ')
+                ?: throwable.message()
+                ?: "HTTP ${throwable.code()}"
+        }
+        return IllegalStateException(message, throwable)
+    }
+
     private fun normalizeBaseUrl(baseUrl: String): String {
         return if (baseUrl.endsWith('/')) baseUrl else "$baseUrl/"
     }
@@ -534,6 +573,10 @@ class MagicHatRepository(
             ),
             latestOutput = preferredSummary(instance),
             status = instance.status ?: "ok",
+            snapshot = instance.snapshot,
+            chat = instance.chat ?: emptyList(),
+            summaryText = instance.summaryText?.takeIf { it.isNotBlank() },
+            terminalsByAgent = instance.terminalsByAgent ?: emptyMap(),
             restoreStatePath = preferredRestorePath(instance),
             restoreRef = instance.restoreRef?.takeIf { it.isNotBlank() },
             runLogPath = preferredRunLogPath(instance),

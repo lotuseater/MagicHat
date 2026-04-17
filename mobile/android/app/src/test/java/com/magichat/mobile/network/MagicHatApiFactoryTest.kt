@@ -28,4 +28,9 @@ class MagicHatApiFactoryTest {
     fun relayFactoryAllowsLocalDevelopmentHttp() {
         factory.createRelay("http://10.0.2.2:18795", tokenProvider = { null })
     }
+
+    @Test
+    fun relayFactoryAllowsPrivateLanHttp() {
+        factory.createRelay("http://192.168.0.104:18795", tokenProvider = { null })
+    }
 }

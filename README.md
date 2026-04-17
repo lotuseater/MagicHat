@@ -88,38 +88,23 @@ There are two pairing modes. Pick the one that matches where the phone will live
 
 ### B. Remote QR pairing (phone off-LAN, via relay)
 
-Needs a reachable relay. For local development the relay can run on loopback HTTP; for real off-LAN use it must serve HTTPS with a cert whose pin matches the Android build.
+One PC action — start the loopback relay + host, pop the QR, and prompt once to approve the phone:
 
-1. Start the relay (dev loopback):
-   ```bash
-   ./scripts/remote-validation/start_relay.sh
-   ```
-   This binds `127.0.0.1:18795` over plain HTTP (allowed only because it is loopback). For non-loopback you must set `MAGICHAT_RELAY_TLS_CERT_PATH` + `MAGICHAT_RELAY_TLS_KEY_PATH`.
-2. Start the host pointed at the relay:
-   ```bash
-   cd host
-   MAGICHAT_RELAY_URL=http://127.0.0.1:18795 \
-   MAGICHAT_ALLOW_INSECURE_RELAY=1 \
-   npm start
-   ```
-   (Drop `MAGICHAT_ALLOW_INSECURE_RELAY=1` for an HTTPS relay.) The host opens a WebSocket back to the relay and stays online.
-3. From the **PC's own browser/terminal** (the admin surface is locked to localhost), generate a pairing QR:
-   ```bash
-   curl -s -X POST http://127.0.0.1:18765/admin/v2/remote/bootstrap > bootstrap.json
-   jq -r .qr_svg bootstrap.json > bootstrap.svg
-   start bootstrap.svg     # Windows: opens the QR in your default viewer
-   ```
-   The JSON also contains `pair_uri` (the raw `magichat://pair?...` URL) if you prefer to send that directly.
-4. On the phone: point the camera at the QR. The deep-link opens the MagicHat app and fills the **Remote Pair URI** field. Tap **Pair Remote**. (If the camera doesn't open the app, paste the `pair_uri` into the field manually.)
-5. The phone registers a pending claim with the relay. Approve it from the PC:
-   ```bash
-   curl -s http://127.0.0.1:18765/admin/v2/remote/pending-devices
-   # → { "pending_approvals": [ { "claim_id": "...", "device_label": "...", ... } ] }
-   curl -X POST http://127.0.0.1:18765/admin/v2/remote/pending-devices/<claim_id>/approve
-   ```
-6. The phone completes registration over the relay and the instance list appears. From now on the device reconnects on its own; revoke it with `DELETE /admin/v2/remote/devices/<device_id>`.
+```powershell
+pwsh scripts/remote-validation/pair_remote.ps1
+```
+(Or double-click `scripts/remote-validation/pair_remote.bat`; on macOS/Linux use `./scripts/remote-validation/pair_remote.sh`.)
 
-For production: set `MAGICHAT_RELAY_CERTIFICATE_PINSET_VERSION=v1` on the relay and build the Android app with the matching pin hashes via `MAGICHAT_ANDROID_RELAY_PINSET_V1=sha256/...[,sha256/...]` (Gradle property or env var). Mobile clients fail closed on unknown pinset versions.
+The script:
+
+1. Starts the relay on `127.0.0.1:18795` and the host on `127.0.0.1:18765`, pointing the host at the relay (dev loopback HTTP, allowed only on localhost).
+2. Calls `POST /admin/v2/remote/bootstrap` and opens the generated QR in your default viewer. The raw `magichat://pair?...` URI is also printed if you need to paste it.
+3. Watches `/admin/v2/remote/pending-devices`. When the phone scans the QR it registers a claim; the script prints the device name + platform and asks `Approve? [y/N/q]`. Press `y` and the phone completes registration over the relay.
+4. Keeps the host + relay running so the phone stays online. Ctrl+C stops both.
+
+Revoke a paired device later with `DELETE /admin/v2/remote/devices/<device_id>`.
+
+For production: swap the loopback relay for an HTTPS one — set `MAGICHAT_RELAY_CERTIFICATE_PINSET_VERSION=v1` on the relay and build the Android app with the matching pin hashes via `MAGICHAT_ANDROID_RELAY_PINSET_V1=sha256/...[,sha256/...]` (Gradle property or env var). Mobile clients fail closed on unknown pinset versions.
 
 ## Development
 

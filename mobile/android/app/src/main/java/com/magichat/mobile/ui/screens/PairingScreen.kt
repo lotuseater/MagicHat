@@ -56,7 +56,7 @@ fun PairingScreen(
                 onValueChange = onBaseUrlChanged,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("PC Host Base URL (LAN)") },
-                placeholder = { Text("http://192.168.1.10:8787/") },
+                placeholder = { Text("http://192.168.1.10:18765/") },
                 singleLine = true,
             )
         }
