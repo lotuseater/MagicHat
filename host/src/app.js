@@ -218,9 +218,39 @@ export function createMagicHatRuntime(options = {}) {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
-  app.get("/healthz", (_req, res) => {
-    res.json({ status: "ok", service: "magichat-host", ts: Date.now() });
-  });
+  app.get("/healthz", asyncRoute(async (_req, res) => {
+    const response = {
+      status: "ok",
+      service: "magichat-host",
+      ts: Date.now(),
+      beacon_path: config.beaconPath,
+    };
+    try {
+      const instances = await beaconStore.listInstances();
+      const now = Date.now();
+      const withHeartbeat = instances
+        .map((inst) => {
+          const hbMs = Number(inst.heartbeat_ts ?? 0);
+          const ageMs = Number.isFinite(hbMs) && hbMs > 0 ? now - hbMs : null;
+          return { id: inst.id, pid: inst.pid, heartbeat_ts: inst.heartbeat_ts, age_ms: ageMs };
+        });
+      const fresh = withHeartbeat.filter((i) => i.age_ms !== null && i.age_ms <= 30000);
+      response.instances_total = withHeartbeat.length;
+      response.instances_fresh = fresh.length;
+      response.team_app_reachable = withHeartbeat.length > 0;
+      response.team_app_fresh = fresh.length > 0;
+      response.instances = withHeartbeat;
+      if (withHeartbeat.length === 0) {
+        response.team_app_reason = "no_beacon_entries";
+      } else if (fresh.length === 0) {
+        response.team_app_reason = "beacon_stale_over_30s";
+      }
+    } catch (err) {
+      response.team_app_reachable = false;
+      response.team_app_reason = `beacon_read_error:${err?.message || "unknown"}`;
+    }
+    res.json(response);
+  }));
 
   app.use("/v1", enforceLanOnly(options.lanGuardOptions));
   app.use("/v1", buildAuthMiddleware(pairingManager));
