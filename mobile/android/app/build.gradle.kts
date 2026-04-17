@@ -3,6 +3,13 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+fun relayPinset(version: String): String {
+    val propertyName = "MAGICHAT_ANDROID_RELAY_PINSET_${version.uppercase().replace('-', '_')}"
+    return (project.findProperty(propertyName) as String?)
+        ?: System.getenv(propertyName)
+        ?: ""
+}
+
 android {
     namespace = "com.magichat.mobile"
     compileSdk = 35
@@ -16,6 +23,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        buildConfigField("String", "MAGICHAT_RELAY_PINSET_V1", "\"${relayPinset("v1").replace("\"", "\\\"")}\"")
     }
 
     buildTypes {
@@ -42,6 +50,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 

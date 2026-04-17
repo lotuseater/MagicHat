@@ -79,6 +79,20 @@ class MagicHatViewModel(
         _uiState.update { it.copy(remotePairUriInput = value) }
     }
 
+    fun importRemotePairUri(value: String) {
+        val normalized = value.trim()
+        if (normalized.isBlank()) {
+            return
+        }
+        _uiState.update {
+            it.copy(
+                screen = MagicHatScreen.PAIRED_PC_SELECTION,
+                remotePairUriInput = normalized,
+                errorMessage = null,
+            )
+        }
+    }
+
     fun updatePairCode(value: String) {
         _uiState.update { it.copy(pairCodeInput = value) }
     }

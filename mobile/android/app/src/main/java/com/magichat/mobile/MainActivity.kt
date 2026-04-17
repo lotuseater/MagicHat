@@ -1,5 +1,6 @@
 package com.magichat.mobile
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,10 +17,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        consumePairingIntent(intent)
         setContent {
             MagicHatTheme {
                 MagicHatApp(viewModel = viewModel)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumePairingIntent(intent)
+    }
+
+    private fun consumePairingIntent(intent: Intent?) {
+        val pairUri = intent?.dataString?.takeIf { it.startsWith("magichat://pair", ignoreCase = true) }
+            ?: return
+        viewModel.importRemotePairUri(pairUri)
     }
 }

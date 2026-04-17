@@ -1,5 +1,6 @@
 package com.magichat.mobile.network
 
+import com.magichat.mobile.BuildConfig
 import java.net.URI
 
 internal object RelayTrustPolicy {
@@ -11,7 +12,11 @@ internal object RelayTrustPolicy {
         "10.0.3.2",
     )
 
-    private val pinsetsByVersion: Map<String, List<String>> = emptyMap()
+    private val pinsetsByVersion: Map<String, List<String>> = buildMap {
+        parsePins(BuildConfig.MAGICHAT_RELAY_PINSET_V1).takeIf { it.isNotEmpty() }?.let { pins ->
+            put("v1", pins)
+        }
+    }
 
     fun validateRelayBaseUrl(baseUrl: String): String {
         val normalized = normalizeBaseUrl(baseUrl)
@@ -47,6 +52,13 @@ internal object RelayTrustPolicy {
     private fun isDevelopmentRelayHost(host: String): Boolean {
         val normalized = host.trim().trim('[', ']').lowercase()
         return normalized in developmentHosts || normalized.startsWith("127.")
+    }
+
+    private fun parsePins(rawPins: String): List<String> {
+        return rawPins
+            .split(',', ';', '\n', '\r')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
     }
 
     private fun normalizeBaseUrl(baseUrl: String): String {
