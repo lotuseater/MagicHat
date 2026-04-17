@@ -47,7 +47,7 @@ export class LifecycleManager {
     };
   }
 
-  async launchInstance({ task, startupTimeoutMs } = {}) {
+  async launchInstance({ task, startupTimeoutMs, startupProfile } = {}) {
     if (this.launchInFlight) {
       return this.launchInFlight;
     }
@@ -60,6 +60,13 @@ export class LifecycleManager {
       const launched = await this.beaconStore.waitForNewInstance(known, {
         timeoutMs: startupTimeoutMs ?? launchConfig.waitMs,
       });
+
+      if (startupProfile && Object.keys(startupProfile).length > 0) {
+        await this.ipcClient.sendCommand(launched, {
+          cmd: "set_startup_profile",
+          ...startupProfile,
+        }, { requireOk: true });
+      }
 
       if (task) {
         await this.ipcClient.sendCommand(launched, {

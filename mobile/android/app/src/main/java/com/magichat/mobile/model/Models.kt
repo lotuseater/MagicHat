@@ -2,6 +2,31 @@ package com.magichat.mobile.model
 
 import com.squareup.moshi.Json
 
+enum class TeamModeOption(val wireValue: String, val label: String) {
+    APP_DEFAULT("", "App default"),
+    SIMPLE("simple", "Simple"),
+    FULL("full", "Full");
+}
+
+enum class LauncherPresetOption(val wireValue: String, val label: String) {
+    APP_DEFAULT("", "App default"),
+    CLAUDE_CODE("claude-code", "Claude Code"),
+    CODEX("codex", "Codex"),
+    CLAUDE_LEGACY("claude-legacy", "Claude Legacy"),
+    CUSTOM_LEGACY("custom-legacy", "Custom Legacy"),
+    GEMINI("gemini", "Gemini");
+}
+
+enum class FenrusLauncherOption(val wireValue: String, val label: String) {
+    APP_DEFAULT("", "App default"),
+    DEFAULT("default", "Default"),
+    CLAUDE_CODE("claude-code", "Claude Code"),
+    CODEX("codex", "Codex"),
+    CLAUDE_LEGACY("claude-legacy", "Claude Legacy"),
+    CUSTOM_LEGACY("custom-legacy", "Custom Legacy"),
+    GEMINI("gemini", "Gemini");
+}
+
 enum class HostConnectionMode {
     LAN_DIRECT,
     REMOTE_RELAY;
@@ -285,6 +310,9 @@ data class LaunchInstanceRequest(
     @Json(name = "restore_state_path") val restoreStatePath: String? = null,
     @Json(name = "restore_ref") val restoreRef: String? = null,
     @Json(name = "startup_timeout_ms") val startupTimeoutMs: Int? = null,
+    @Json(name = "team_mode") val teamMode: String? = null,
+    @Json(name = "launcher_preset") val launcherPreset: String? = null,
+    @Json(name = "fenrus_launcher") val fenrusLauncher: String? = null,
 )
 
 data class PromptRequest(

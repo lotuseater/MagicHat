@@ -1,12 +1,14 @@
 package com.magichat.mobile.state
 
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.FollowUpRequest
 import com.magichat.mobile.model.HostConnectionMode
 import com.magichat.mobile.model.InstanceDetail
 import com.magichat.mobile.model.InstanceEvent
 import com.magichat.mobile.model.InstanceWire
 import com.magichat.mobile.model.KnownRestoreRef
+import com.magichat.mobile.model.LauncherPresetOption
 import com.magichat.mobile.model.LaunchInstanceRequest
 import com.magichat.mobile.model.PairedHostRecord
 import com.magichat.mobile.model.PairRequest
@@ -17,6 +19,7 @@ import com.magichat.mobile.model.RemotePairClaimRequest
 import com.magichat.mobile.model.RemoteSessionRefreshRequest
 import com.magichat.mobile.model.SubmissionReceipt
 import com.magichat.mobile.model.TeamAppInstance
+import com.magichat.mobile.model.TeamModeOption
 import com.magichat.mobile.model.TrustRequest
 import com.magichat.mobile.network.MagicHatApiFactory
 import com.magichat.mobile.network.MoshiFactory
@@ -46,7 +49,12 @@ interface MagicHatRepositoryContract {
     suspend fun listInstances(): List<TeamAppInstance>
     suspend fun listKnownRestoreRefs(): List<KnownRestoreRef>
     suspend fun getInstanceDetail(instanceId: String): InstanceDetail
-    suspend fun launchInstance(title: String?): InstanceDetail
+    suspend fun launchInstance(
+        title: String?,
+        teamMode: TeamModeOption,
+        launcherPreset: LauncherPresetOption,
+        fenrusLauncher: FenrusLauncherOption,
+    ): InstanceDetail
     suspend fun closeInstance(instanceId: String)
     suspend fun sendPrompt(instanceId: String, prompt: String): SubmissionReceipt
     suspend fun sendFollowUp(instanceId: String, followUp: String): SubmissionReceipt
@@ -283,23 +291,30 @@ class MagicHatRepository(
         return toInstanceDetail(wire)
     }
 
-    override suspend fun launchInstance(title: String?): InstanceDetail {
+    override suspend fun launchInstance(
+        title: String?,
+        teamMode: TeamModeOption,
+        launcherPreset: LauncherPresetOption,
+        fenrusLauncher: FenrusLauncherOption,
+    ): InstanceDetail {
         val context = requireActiveContext()
+        val request = LaunchInstanceRequest(
+            title = title.takeUnless { it.isNullOrBlank() },
+            teamMode = teamMode.wireValue.takeUnless { it.isBlank() },
+            launcherPreset = launcherPreset.wireValue.takeUnless { it.isBlank() },
+            fenrusLauncher = fenrusLauncher.wireValue.takeUnless { it.isBlank() },
+        )
         val launched = if (isRemote(context.record)) {
             withTransportRetry {
                 relayApiFor(context.record).launchInstance(
                     context.record.hostId,
-                    LaunchInstanceRequest(
-                        title = title.takeUnless { it.isNullOrBlank() },
-                    ),
+                    request,
                 )
             }
         } else {
             withTransportRetry {
                 lanApiFor(context.record).launchInstance(
-                    LaunchInstanceRequest(
-                        title = title.takeUnless { it.isNullOrBlank() },
-                    ),
+                    request,
                 )
             }
         }

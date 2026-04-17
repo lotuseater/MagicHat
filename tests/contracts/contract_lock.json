@@ -121,6 +121,7 @@
       "snapshot",
       "inspect",
       "close_instance",
+      "set_startup_profile",
       "submit_initial_prompt",
       "submit_follow_up",
       "restore_session",
@@ -157,7 +158,10 @@
       {
         "endpoint": "POST /v1/instances",
         "source": "process_spawn",
-        "team_app_command": []
+        "team_app_command": [
+          "set_startup_profile",
+          "submit_initial_prompt"
+        ]
       },
       {
         "endpoint": "DELETE /v1/instances/{pid}",

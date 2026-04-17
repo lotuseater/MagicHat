@@ -152,6 +152,8 @@ MagicHat status/output priority is fixed:
   - send `{"cmd":"inspect","include_chat":true,"include_summary":true,"include_terminals":true}`
 - Launch instance:
   - spawn Team App process and wait for new beacon entry
+  - optionally send `{"cmd":"set_startup_profile","team_mode":"simple|full","launcher_preset":"...","fenrus_launcher":"default|..."}` before the first prompt
+  - if `title` is supplied in the launch request, send `{"cmd":"submit_initial_prompt","instance_id":"...","prompt":"..."}` after startup profile application
 - Close instance:
   - send `{"cmd":"close_instance","instance_id":"...","pid":12345}`
 - Send initial prompt:

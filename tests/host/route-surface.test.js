@@ -46,10 +46,25 @@ describe("contract route surface", () => {
 
     const launch = await ctx.http.post("/v1/instances", {
       token,
-      body: { startup_timeout_ms: 1200 },
+      body: {
+        startup_timeout_ms: 1200,
+        team_mode: "full",
+        launcher_preset: "codex",
+        fenrus_launcher: "default",
+      },
     });
     expect(launch.status).toBe(201);
     expect(launch.body.pid).toBe(999);
+    expect(ctx.runtime.lifecycleManager.launchInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startupTimeoutMs: 1200,
+        startupProfile: {
+          team_mode: "full",
+          launcher_preset: "codex",
+          fenrus_launcher: "default",
+        },
+      }),
+    );
 
     const poll = await ctx.http.get("/v1/instances/412/poll", { token });
     expect(poll.status).toBe(200);

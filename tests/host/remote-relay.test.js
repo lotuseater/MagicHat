@@ -284,10 +284,23 @@ describe("remote relay integration", () => {
         body: {
           title: "Remote launch",
           restore_ref: restoreRefs.body.restore_refs[0].restore_ref,
+          team_mode: "full",
+          launcher_preset: "codex",
+          fenrus_launcher: "default",
         },
       },
     );
     expect(launch.status).toBe(201);
+    expect(host.runtime.lifecycleManager.launchInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "Remote launch",
+        startupProfile: {
+          team_mode: "full",
+          launcher_preset: "codex",
+          fenrus_launcher: "default",
+        },
+      }),
+    );
     expect(sendCommand).toHaveBeenCalledWith(
       expect.objectContaining({ pid: 999 }),
       expect.objectContaining({ cmd: "restore_session", path: "C:/runs/session-alpha/session_restore.json" }),

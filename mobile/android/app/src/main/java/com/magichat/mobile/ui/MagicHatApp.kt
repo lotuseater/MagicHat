@@ -3,15 +3,23 @@ package com.magichat.mobile.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -25,6 +33,7 @@ import com.magichat.mobile.ui.screens.InstanceDetailScreen
 import com.magichat.mobile.ui.screens.InstancesScreen
 import com.magichat.mobile.ui.screens.PairingScreen
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MagicHatApp(
     viewModel: MagicHatViewModel,
@@ -40,20 +49,47 @@ fun MagicHatApp(
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        when (uiState.screen) {
+                            MagicHatScreen.PAIRED_PC_SELECTION -> "Hosts"
+                            MagicHatScreen.INSTANCES -> "Sessions"
+                            MagicHatScreen.INSTANCE_DETAIL -> "Session"
+                        },
+                    )
+                },
+            )
+        },
         bottomBar = {
-            BottomAppBar {
-                Button(onClick = { viewModel.navigateTo(MagicHatScreen.PAIRED_PC_SELECTION) }, modifier = Modifier.padding(horizontal = 6.dp)) {
-                    Text("PCs")
-                }
-                Button(onClick = { viewModel.navigateTo(MagicHatScreen.INSTANCES) }, modifier = Modifier.padding(horizontal = 6.dp)) {
-                    Text("Instances")
-                }
-                Button(
-                    onClick = { viewModel.navigateTo(MagicHatScreen.INSTANCE_DETAIL) },
-                    modifier = Modifier.padding(horizontal = 6.dp),
-                ) {
-                    Text("Detail")
-                }
+            NavigationBar {
+                NavigationBarItem(
+                    selected = uiState.screen == MagicHatScreen.PAIRED_PC_SELECTION,
+                    onClick = { viewModel.navigateTo(MagicHatScreen.PAIRED_PC_SELECTION) },
+                    icon = { Icon(Icons.Outlined.Computer, contentDescription = null) },
+                    label = { Text("Hosts") },
+                )
+                NavigationBarItem(
+                    selected = uiState.screen == MagicHatScreen.INSTANCES,
+                    onClick = { viewModel.navigateTo(MagicHatScreen.INSTANCES) },
+                    icon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
+                    label = { Text("Sessions") },
+                )
+                NavigationBarItem(
+                    selected = uiState.screen == MagicHatScreen.INSTANCE_DETAIL,
+                    onClick = {
+                        if (uiState.selectedInstanceId != null) {
+                            viewModel.navigateTo(MagicHatScreen.INSTANCE_DETAIL)
+                        } else {
+                            viewModel.navigateTo(MagicHatScreen.INSTANCES)
+                            viewModel.clearError()
+                        }
+                    },
+                    icon = { Icon(Icons.Outlined.Terminal, contentDescription = null) },
+                    enabled = uiState.selectedInstanceId != null,
+                    label = { Text("Session") },
+                )
             }
         },
     ) { paddingValues ->
@@ -61,11 +97,11 @@ fun MagicHatApp(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(12.dp),
+                .padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (uiState.isLoading) {
-                CircularProgressIndicator()
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
             when (uiState.screen) {
@@ -74,17 +110,22 @@ fun MagicHatApp(
                     onBaseUrlChanged = viewModel::updateBaseUrl,
                     onRemotePairUriChanged = viewModel::updateRemotePairUri,
                     onPairCodeChanged = viewModel::updatePairCode,
+                    onToggleLanPairing = viewModel::toggleLanPairingExpanded,
                     onDiscover = viewModel::discoverHosts,
                     onPair = viewModel::pair,
                     onPairRemote = viewModel::pairRemote,
                     onSelectPairedHost = viewModel::selectPairedHost,
                     onForgetHost = viewModel::forgetHost,
                     onRefreshActiveHost = viewModel::refreshActiveHostStatus,
+                    onError = viewModel::showError,
                 )
 
                 MagicHatScreen.INSTANCES -> InstancesScreen(
                     state = uiState,
                     onLaunchTitleChanged = viewModel::updateLaunchTitle,
+                    onLaunchTeamModeChanged = viewModel::updateLaunchTeamMode,
+                    onLaunchLauncherPresetChanged = viewModel::updateLaunchLauncherPreset,
+                    onLaunchFenrusLauncherChanged = viewModel::updateLaunchFenrusLauncher,
                     onRestoreSessionChanged = viewModel::updateRestoreSession,
                     onRefresh = viewModel::refreshInstances,
                     onLaunchInstance = viewModel::launchInstance,
@@ -98,8 +139,9 @@ fun MagicHatApp(
                 MagicHatScreen.INSTANCE_DETAIL -> {
                     if (uiState.selectedInstanceId == null) {
                         Text(
-                            text = "Select an instance from the Instances screen",
+                            text = "Pick a session from Sessions to see chat, team terminals, summary, and live stream output.",
                             style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(top = 12.dp),
                         )
                     } else {
                         InstanceDetailScreen(

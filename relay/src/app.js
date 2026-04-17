@@ -576,6 +576,9 @@ export async function createRelayRuntime(options = {}) {
         params: {
           title: `${req.body?.title || ""}`.trim() || null,
           restore_ref: `${req.body?.restore_ref || ""}`.trim() || null,
+          team_mode: `${req.body?.team_mode || ""}`.trim() || null,
+          launcher_preset: `${req.body?.launcher_preset || ""}`.trim() || null,
+          fenrus_launcher: `${req.body?.fenrus_launcher || ""}`.trim() || null,
         },
       });
       res.status(201).json(result.result);

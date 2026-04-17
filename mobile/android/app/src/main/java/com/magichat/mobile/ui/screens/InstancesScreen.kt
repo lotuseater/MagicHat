@@ -6,25 +6,39 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.KnownRestoreRef
+import com.magichat.mobile.model.LauncherPresetOption
 import com.magichat.mobile.model.TeamAppInstance
+import com.magichat.mobile.model.TeamModeOption
 import com.magichat.mobile.model.canRunCommands
 import com.magichat.mobile.state.MagicHatUiState
 import com.magichat.mobile.ui.components.HostContextCard
+import com.magichat.mobile.ui.components.StatusChip
 
 @Composable
 fun InstancesScreen(
     state: MagicHatUiState,
     onLaunchTitleChanged: (String) -> Unit,
+    onLaunchTeamModeChanged: (TeamModeOption) -> Unit,
+    onLaunchLauncherPresetChanged: (LauncherPresetOption) -> Unit,
+    onLaunchFenrusLauncherChanged: (FenrusLauncherOption) -> Unit,
     onRestoreSessionChanged: (String) -> Unit,
     onRefresh: () -> Unit,
     onLaunchInstance: () -> Unit,
@@ -37,9 +51,9 @@ fun InstancesScreen(
     val hasActiveHost = state.activeHost != null
     val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text("Team App Instances", style = MaterialTheme.typography.titleLarge)
+            Text("Sessions", style = MaterialTheme.typography.headlineSmall)
         }
 
         item {
@@ -54,92 +68,58 @@ fun InstancesScreen(
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onRefresh, enabled = hasActiveHost && state.isLoading.not()) {
-                    Text("Refresh")
-                }
-                Button(onClick = onLaunchInstance, enabled = canRunCommands && state.isLoading.not()) {
-                    Text("Launch New")
+                OutlinedButton(onClick = onRefresh, enabled = hasActiveHost && state.isLoading.not()) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                    Text(" Refresh")
                 }
             }
         }
 
         item {
-            OutlinedTextField(
-                value = state.launchTitleInput,
-                onValueChange = onLaunchTitleChanged,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("New Instance Title") },
-                singleLine = true,
-                enabled = hasActiveHost && state.isLoading.not(),
+            SessionComposerCard(
+                state = state,
+                canRunCommands = canRunCommands,
+                onLaunchTitleChanged = onLaunchTitleChanged,
+                onLaunchTeamModeChanged = onLaunchTeamModeChanged,
+                onLaunchLauncherPresetChanged = onLaunchLauncherPresetChanged,
+                onLaunchFenrusLauncherChanged = onLaunchFenrusLauncherChanged,
+                onLaunchInstance = onLaunchInstance,
             )
         }
 
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = state.restoreSessionInput,
-                    onValueChange = onRestoreSessionChanged,
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Restore Ref / Session") },
-                    singleLine = true,
-                    enabled = hasActiveHost && state.isLoading.not(),
-                )
-                Button(
-                    onClick = onRestoreSession,
-                    enabled = canRunCommands && state.restoreSessionInput.isNotBlank() && state.isLoading.not(),
-                ) {
-                    Text("Restore")
-                }
-            }
-        }
-
-        if (hasActiveHost.not()) {
-            item {
-                Text(
-                    "Select a paired host on the PCs screen first. Launch, restore, and instance refresh all depend on that host context.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        } else if (!canRunCommands) {
-            item {
-                Text(
-                    "The active host is offline, so Team App commands are temporarily disabled. You can still refresh or switch hosts.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-
-        if (state.knownRestoreRefs.isNotEmpty()) {
-            item {
-                Text("Known Restore Refs", style = MaterialTheme.typography.titleMedium)
-            }
-            items(state.knownRestoreRefs, key = { it.restoreRef }) { restoreRef ->
-                RestoreRefRow(
-                    restoreRef = restoreRef,
-                    enabled = canRunCommands && state.isLoading.not(),
-                    onPick = { onPickRestoreRef(restoreRef.restoreRef) },
-                )
-            }
+            RestoreSessionCard(
+                state = state,
+                canRunCommands = canRunCommands,
+                onRestoreSessionChanged = onRestoreSessionChanged,
+                onPickRestoreRef = onPickRestoreRef,
+                onRestoreSession = onRestoreSession,
+            )
         }
 
         item {
-            Text("Open Instances", style = MaterialTheme.typography.titleMedium)
+            Text("Open Sessions", style = MaterialTheme.typography.titleMedium)
         }
 
-        if (state.instances.isEmpty()) {
+        if (!hasActiveHost) {
             item {
                 Text(
-                    if (hasActiveHost) {
-                        "Connected, but this host does not currently have any open Team App instances."
-                    } else {
-                        "No instances to show yet."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
+                    "Choose a host on the Hosts screen first.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else if (state.instances.isEmpty()) {
+            item {
+                Text(
+                    "Connected, but this host does not currently expose any open Team App sessions.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
             items(state.instances, key = { it.instanceId }) { instance ->
-                InstanceRow(
+                SessionRow(
                     instance = instance,
                     selected = instance.instanceId == state.selectedInstanceId,
                     enabled = canRunCommands && state.isLoading.not(),
@@ -152,30 +132,198 @@ fun InstancesScreen(
 }
 
 @Composable
-private fun RestoreRefRow(
-    restoreRef: KnownRestoreRef,
-    enabled: Boolean,
-    onPick: () -> Unit,
+private fun SessionComposerCard(
+    state: MagicHatUiState,
+    canRunCommands: Boolean,
+    onLaunchTitleChanged: (String) -> Unit,
+    onLaunchTeamModeChanged: (TeamModeOption) -> Unit,
+    onLaunchLauncherPresetChanged: (LauncherPresetOption) -> Unit,
+    onLaunchFenrusLauncherChanged: (FenrusLauncherOption) -> Unit,
+    onLaunchInstance: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(restoreRef.title ?: restoreRef.restoreRef, style = MaterialTheme.typography.titleSmall)
-            Text(restoreRef.restoreRef)
-            restoreRef.sessionId?.takeIf { it.isNotBlank() }?.let {
-                Text("session: $it")
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.PlayArrow, contentDescription = null)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Start Session", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Launch a new Team App session and optionally override the startup profile.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            restoreRef.observedAt?.takeIf { it.isNotBlank() }?.let {
-                Text("seen: $it")
-            }
-            Button(onClick = onPick, enabled = enabled) {
-                Text("Use Restore Ref")
+
+            OutlinedTextField(
+                value = state.launchTitleInput,
+                onValueChange = onLaunchTitleChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Initial Prompt") },
+                minLines = 3,
+                enabled = canRunCommands && state.isLoading.not(),
+            )
+
+            LaunchOptionSelector(
+                label = "Team Mode",
+                options = TeamModeOption.entries,
+                selected = state.launchTeamMode,
+                optionLabel = { it.label },
+                enabled = canRunCommands && state.isLoading.not(),
+                onSelected = onLaunchTeamModeChanged,
+            )
+
+            LaunchOptionSelector(
+                label = "Launcher",
+                options = LauncherPresetOption.entries,
+                selected = state.launchLauncherPreset,
+                optionLabel = { it.label },
+                enabled = canRunCommands && state.isLoading.not(),
+                onSelected = onLaunchLauncherPresetChanged,
+            )
+
+            LaunchOptionSelector(
+                label = "Fenrus",
+                options = FenrusLauncherOption.entries,
+                selected = state.launchFenrusLauncher,
+                optionLabel = { it.label },
+                enabled = canRunCommands && state.isLoading.not(),
+                onSelected = onLaunchFenrusLauncherChanged,
+            )
+
+            Button(
+                onClick = onLaunchInstance,
+                enabled = canRunCommands && state.isLoading.not(),
+            ) {
+                Text("Start Session")
             }
         }
     }
 }
 
 @Composable
-private fun InstanceRow(
+private fun RestoreSessionCard(
+    state: MagicHatUiState,
+    canRunCommands: Boolean,
+    onRestoreSessionChanged: (String) -> Unit,
+    onPickRestoreRef: (String) -> Unit,
+    onRestoreSession: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.Restore, contentDescription = null)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Restore Session", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Use a saved restore ref or paste a known session selector.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = state.restoreSessionInput,
+                    onValueChange = onRestoreSessionChanged,
+                    modifier = Modifier.weight(1f),
+                    label = { Text("Restore Ref / Session") },
+                    singleLine = true,
+                    enabled = canRunCommands && state.isLoading.not(),
+                )
+                Button(
+                    onClick = onRestoreSession,
+                    enabled = canRunCommands && state.restoreSessionInput.isNotBlank() && state.isLoading.not(),
+                ) {
+                    Text("Restore")
+                }
+            }
+
+            if (state.knownRestoreRefs.isNotEmpty()) {
+                Text("Known Restore Refs", style = MaterialTheme.typography.titleSmall)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(state.knownRestoreRefs, key = { it.restoreRef }) { restoreRef ->
+                        RestoreRefChipCard(
+                            restoreRef = restoreRef,
+                            onPick = { onPickRestoreRef(restoreRef.restoreRef) },
+                            enabled = canRunCommands && state.isLoading.not(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun <T> LaunchOptionSelector(
+    label: String,
+    options: List<T>,
+    selected: T,
+    optionLabel: (T) -> String,
+    enabled: Boolean,
+    onSelected: (T) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(options) { option ->
+                val isSelected = option == selected
+                StatusChip(
+                    label = optionLabel(option),
+                    background = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(end = 0.dp),
+                )
+            }
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(options) { option ->
+                OutlinedButton(
+                    onClick = { onSelected(option) },
+                    enabled = enabled && option != selected,
+                ) {
+                    Text(optionLabel(option))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RestoreRefChipCard(
+    restoreRef: KnownRestoreRef,
+    onPick: () -> Unit,
+    enabled: Boolean,
+) {
+    Card {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(restoreRef.title ?: restoreRef.restoreRef, style = MaterialTheme.typography.titleSmall)
+            Text(
+                restoreRef.restoreRef,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = onPick, enabled = enabled) {
+                Text("Use")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionRow(
     instance: TeamAppInstance,
     selected: Boolean,
     enabled: Boolean,
@@ -183,26 +331,61 @@ private fun InstanceRow(
     onClose: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
                 if (selected) "${instance.title} (Selected)" else instance.title,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
             )
-            Text("${instance.instanceId} • ${instance.health} • active=${instance.active}")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusChip(
+                    label = instance.health,
+                    background = when (instance.health.lowercase()) {
+                        "running", "planning", "reviewing", "executing" -> MaterialTheme.colorScheme.primaryContainer
+                        "blocked", "error", "failed" -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = when (instance.health.lowercase()) {
+                        "running", "planning", "reviewing", "executing" -> MaterialTheme.colorScheme.onPrimaryContainer
+                        "blocked", "error", "failed" -> MaterialTheme.colorScheme.onErrorContainer
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                StatusChip(
+                    label = if (instance.active) "active" else "inactive",
+                    background = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            Text(
+                instance.instanceId,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             instance.sessionId?.takeIf { it.isNotBlank() }?.let {
-                Text("session: $it")
+                Text(
+                    "session: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (!instance.resultPreview.isNullOrBlank()) {
-                Text(instance.resultPreview)
+                Text(instance.resultPreview, style = MaterialTheme.typography.bodyMedium)
             }
             instance.restoreRef?.takeIf { it.isNotBlank() }?.let {
-                Text("restore ref: $it")
+                Text(
+                    "restore ref: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onOpen, enabled = enabled && selected.not()) {
-                    Text("Open")
+                Button(onClick = onOpen, enabled = enabled && !selected) {
+                    Text(if (selected) "Open" else "View")
                 }
-                Button(onClick = onClose, enabled = enabled) {
+                OutlinedButton(onClick = onClose, enabled = enabled) {
                     Text("Close")
                 }
             }

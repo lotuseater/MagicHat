@@ -95,7 +95,26 @@ export class HostControlService {
     return this.toRemoteDetail(detail);
   }
 
-  async launchInstance({ title, restoreStatePath, restoreRef, startupTimeoutMs, remoteSafe = false } = {}) {
+  startupProfileFromRequest({ teamMode, launcherPreset, fenrusLauncher } = {}) {
+    return Object.fromEntries(
+      Object.entries({
+        team_mode: teamMode?.trim() || undefined,
+        launcher_preset: launcherPreset?.trim() || undefined,
+        fenrus_launcher: fenrusLauncher?.trim() || undefined,
+      }).filter(([, value]) => typeof value === "string" && value.length > 0),
+    );
+  }
+
+  async launchInstance({
+    title,
+    restoreStatePath,
+    restoreRef,
+    startupTimeoutMs,
+    teamMode,
+    launcherPreset,
+    fenrusLauncher,
+    remoteSafe = false,
+  } = {}) {
     let resolvedRestorePath = restoreStatePath || null;
     if (restoreRef) {
       resolvedRestorePath = this.remoteAccessState?.resolveRestoreRef(restoreRef) || null;
@@ -116,9 +135,16 @@ export class HostControlService {
       throw error;
     }
 
+    const startupProfile = this.startupProfileFromRequest({
+      teamMode,
+      launcherPreset,
+      fenrusLauncher,
+    });
+
     const launched = await this.lifecycleManager.launchInstance({
       task: title?.trim() || undefined,
       startupTimeoutMs,
+      startupProfile,
     });
 
     if (resolvedRestorePath) {

@@ -142,6 +142,9 @@ export function createMagicHatRuntime(options = {}) {
             return await hostControlService.launchInstance({
               title: command.params.title,
               restoreRef: command.params.restore_ref,
+              teamMode: command.params.team_mode,
+              launcherPreset: command.params.launcher_preset,
+              fenrusLauncher: command.params.fenrus_launcher,
               remoteSafe: true,
             });
           case "close_instance":
@@ -322,6 +325,9 @@ export function createMagicHatRuntime(options = {}) {
         restoreStatePath: `${req.body?.restore_state_path || ""}`.trim() || undefined,
         restoreRef: `${req.body?.restore_ref || ""}`.trim() || undefined,
         startupTimeoutMs: Number.isFinite(startupTimeoutMs) ? startupTimeoutMs : undefined,
+        teamMode: `${req.body?.team_mode || ""}`.trim() || undefined,
+        launcherPreset: `${req.body?.launcher_preset || ""}`.trim() || undefined,
+        fenrusLauncher: `${req.body?.fenrus_launcher || ""}`.trim() || undefined,
       });
       res.status(201).json(launched);
     }),

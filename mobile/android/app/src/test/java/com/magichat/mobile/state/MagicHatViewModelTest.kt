@@ -2,12 +2,15 @@ package com.magichat.mobile.state
 
 import com.google.common.truth.Truth.assertThat
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.InstanceDetail
 import com.magichat.mobile.model.InstanceEvent
 import com.magichat.mobile.model.KnownRestoreRef
+import com.magichat.mobile.model.LauncherPresetOption
 import com.magichat.mobile.model.PairedHostRecord
 import com.magichat.mobile.model.SubmissionReceipt
 import com.magichat.mobile.model.TeamAppInstance
+import com.magichat.mobile.model.TeamModeOption
 import com.magichat.mobile.storage.PairingSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -230,6 +233,43 @@ class MagicHatViewModelTest {
         assertThat(viewModel.uiState.value.activeHostPresence).isEqualTo("online")
     }
 
+    @Test
+    fun launchInstancePassesStartupProfileSelectionsAndResetsControls() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            instancesResult = listOf(instance("launched-1")),
+            restoreRefsResult = listOf(KnownRestoreRef(restoreRef = "restore-launched", title = "Launch Restore")),
+        )
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        repository.launchInstanceResult = InstanceDetail(instance = instance("launched-1"))
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.updateLaunchTitle("Hej")
+        viewModel.updateLaunchTeamMode(TeamModeOption.FULL)
+        viewModel.updateLaunchLauncherPreset(LauncherPresetOption.CODEX)
+        viewModel.updateLaunchFenrusLauncher(FenrusLauncherOption.DEFAULT)
+        viewModel.launchInstance()
+        advanceUntilIdle()
+
+        assertThat(repository.launchInstanceCalls).containsExactly(
+            LaunchInvocation(
+                title = "Hej",
+                teamMode = TeamModeOption.FULL,
+                launcherPreset = LauncherPresetOption.CODEX,
+                fenrusLauncher = FenrusLauncherOption.DEFAULT,
+            ),
+        )
+        val state = viewModel.uiState.value
+        assertThat(state.screen).isEqualTo(MagicHatScreen.INSTANCE_DETAIL)
+        assertThat(state.launchTitleInput).isEmpty()
+        assertThat(state.launchTeamMode).isEqualTo(TeamModeOption.APP_DEFAULT)
+        assertThat(state.launchLauncherPreset).isEqualTo(LauncherPresetOption.APP_DEFAULT)
+        assertThat(state.launchFenrusLauncher).isEqualTo(FenrusLauncherOption.APP_DEFAULT)
+    }
+
     private fun pairedHost(
         hostId: String,
         displayName: String,
@@ -266,6 +306,7 @@ private class FakeMagicHatRepository(
     private val instancesResult: List<TeamAppInstance> = emptyList(),
     private val restoreRefsResult: List<KnownRestoreRef> = emptyList(),
 ) : MagicHatRepositoryContract {
+    val launchInstanceCalls = mutableListOf<LaunchInvocation>()
     val pairingStateFlow = MutableStateFlow(PairingSnapshot(emptyList(), null))
     val activeHostSelections = mutableListOf<String>()
     val removedHosts = mutableListOf<String>()
@@ -275,6 +316,7 @@ private class FakeMagicHatRepository(
     var listRestoreRefsCalls = 0
     var refreshActiveHostCalls = 0
     var stopInstanceEventsCalls = 0
+    var launchInstanceResult: InstanceDetail = InstanceDetail(instance = instance("launched"))
 
     override val pairingState: Flow<PairingSnapshot> = pairingStateFlow
 
@@ -336,8 +378,14 @@ private class FakeMagicHatRepository(
         return InstanceDetail(instance = instance(instanceId))
     }
 
-    override suspend fun launchInstance(title: String?): InstanceDetail {
-        error("Not used in this test")
+    override suspend fun launchInstance(
+        title: String?,
+        teamMode: TeamModeOption,
+        launcherPreset: LauncherPresetOption,
+        fenrusLauncher: FenrusLauncherOption,
+    ): InstanceDetail {
+        launchInstanceCalls += LaunchInvocation(title, teamMode, launcherPreset, fenrusLauncher)
+        return launchInstanceResult
     }
 
     override suspend fun closeInstance(instanceId: String) = Unit
@@ -381,3 +429,10 @@ private class FakeMagicHatRepository(
         )
     }
 }
+
+private data class LaunchInvocation(
+    val title: String?,
+    val teamMode: TeamModeOption,
+    val launcherPreset: LauncherPresetOption,
+    val fenrusLauncher: FenrusLauncherOption,
+)

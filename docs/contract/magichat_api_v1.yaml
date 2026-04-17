@@ -17,7 +17,7 @@ servers:
       lan_host:
         default: 192.168.1.10
       port:
-        default: "8787"
+        default: "18765"
 
 tags:
   - name: pairing
@@ -102,9 +102,24 @@ paths:
       summary: Launch a new Team App instance on the PC.
       operationId: launchInstance
       x-team-app-mapping:
-        source: process_spawn
-        executable: wizard_team_app.exe
-        beacon_confirmation: true
+        sequence:
+          - source: process_spawn
+            executable: wizard_team_app.exe
+            beacon_confirmation: true
+          - cmd: set_startup_profile
+            when_any_request_field_present:
+              - team_mode
+              - launcher_preset
+              - fenrus_launcher
+            payload:
+              team_mode: $request.team_mode
+              launcher_preset: $request.launcher_preset
+              fenrus_launcher: $request.fenrus_launcher
+          - cmd: submit_initial_prompt
+            when_request_field_present: title
+            payload:
+              instance_id: $beacon.instance_id
+              prompt: $request.title
       requestBody:
         required: false
         content:
@@ -562,6 +577,18 @@ components:
           type: string
           minLength: 1
           description: Optional display title / initial task label for the launched Team App instance.
+        team_mode:
+          type: string
+          enum: [simple, full]
+          description: Optional Team App run mode override for the new instance.
+        launcher_preset:
+          type: string
+          enum: [claude-code, codex, claude-legacy, custom-legacy, gemini]
+          description: Optional default launcher preset override for the new instance.
+        fenrus_launcher:
+          type: string
+          enum: [default, claude-code, codex, claude-legacy, custom-legacy, gemini]
+          description: Optional Fenrus launcher override for the new instance. Use `default` to follow the shared launcher.
         restore_ref:
           type: string
           minLength: 1

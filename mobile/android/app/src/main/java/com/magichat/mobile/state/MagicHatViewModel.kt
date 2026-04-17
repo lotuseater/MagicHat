@@ -5,11 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.InstanceDetail
 import com.magichat.mobile.model.InstanceEvent
 import com.magichat.mobile.model.KnownRestoreRef
+import com.magichat.mobile.model.LauncherPresetOption
 import com.magichat.mobile.model.PairedHostRecord
 import com.magichat.mobile.model.TeamAppInstance
+import com.magichat.mobile.model.TeamModeOption
 import com.magichat.mobile.security.DeviceKeyStore
 import com.magichat.mobile.storage.PairingStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +32,11 @@ data class MagicHatUiState(
     val baseUrlInput: String = "http://192.168.1.10:18765/",
     val remotePairUriInput: String = "",
     val pairCodeInput: String = "",
+    val lanPairingExpanded: Boolean = false,
     val launchTitleInput: String = "",
+    val launchTeamMode: TeamModeOption = TeamModeOption.APP_DEFAULT,
+    val launchLauncherPreset: LauncherPresetOption = LauncherPresetOption.APP_DEFAULT,
+    val launchFenrusLauncher: FenrusLauncherOption = FenrusLauncherOption.APP_DEFAULT,
     val restoreSessionInput: String = "",
     val promptInput: String = "",
     val followUpInput: String = "",
@@ -98,12 +105,28 @@ class MagicHatViewModel(
         _uiState.update { it.copy(pairCodeInput = value) }
     }
 
+    fun toggleLanPairingExpanded() {
+        _uiState.update { it.copy(lanPairingExpanded = !it.lanPairingExpanded) }
+    }
+
     fun updateLaunchTitle(value: String) {
         _uiState.update { it.copy(launchTitleInput = value) }
     }
 
     fun updatePrompt(value: String) {
         _uiState.update { it.copy(promptInput = value) }
+    }
+
+    fun updateLaunchTeamMode(value: TeamModeOption) {
+        _uiState.update { it.copy(launchTeamMode = value) }
+    }
+
+    fun updateLaunchLauncherPreset(value: LauncherPresetOption) {
+        _uiState.update { it.copy(launchLauncherPreset = value) }
+    }
+
+    fun updateLaunchFenrusLauncher(value: FenrusLauncherOption) {
+        _uiState.update { it.copy(launchFenrusLauncher = value) }
     }
 
     fun updateFollowUp(value: String) {
@@ -146,6 +169,10 @@ class MagicHatViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun showError(message: String) {
+        _uiState.update { it.copy(errorMessage = message) }
     }
 
     fun discoverHosts() {
@@ -227,7 +254,13 @@ class MagicHatViewModel(
 
     fun launchInstance() {
         launchAction {
-            val detail = repository.launchInstance(_uiState.value.launchTitleInput)
+            val state = _uiState.value
+            val detail = repository.launchInstance(
+                title = state.launchTitleInput,
+                teamMode = state.launchTeamMode,
+                launcherPreset = state.launchLauncherPreset,
+                fenrusLauncher = state.launchFenrusLauncher,
+            )
             val instances = repository.listInstances()
             val restoreRefs = repository.listKnownRestoreRefs()
             _uiState.update {
@@ -239,6 +272,9 @@ class MagicHatViewModel(
                     selectedTerminalAgent = preferredTerminalAgent(detail, it.selectedTerminalAgent),
                     screen = MagicHatScreen.INSTANCE_DETAIL,
                     launchTitleInput = "",
+                    launchTeamMode = TeamModeOption.APP_DEFAULT,
+                    launchLauncherPreset = LauncherPresetOption.APP_DEFAULT,
+                    launchFenrusLauncher = FenrusLauncherOption.APP_DEFAULT,
                 )
             }
             subscribeToInstance(detail.instance.instanceId)
