@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.CliEvent
 import com.magichat.mobile.model.CliInstanceWire
 import com.magichat.mobile.model.CliPreset
 import com.magichat.mobile.model.FenrusLauncherOption
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 enum class MagicHatScreen {
     PAIRED_PC_SELECTION,
@@ -62,6 +64,7 @@ data class MagicHatUiState(
     val cliLaunchPromptInput: String = "",
     val cliFollowUpInput: String = "",
     val cliSelectedInstanceId: String? = null,
+    val cliStreamStatus: String = "idle",
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
 )
@@ -185,7 +188,8 @@ class MagicHatViewModel(
             }
 
             MagicHatScreen.CLI_INSTANCES -> {
-                launchBackgroundRefresh {
+                launchAction {
+                    repository.refreshActiveHost()
                     refreshCliInstances(loadPresetsIfMissing = true)
                 }
             }
@@ -208,11 +212,63 @@ class MagicHatViewModel(
 
     fun selectCliInstance(instanceId: String?) {
         _uiState.update { it.copy(cliSelectedInstanceId = instanceId) }
+        if (instanceId != null) {
+            subscribeToCliInstance(instanceId)
+        } else {
+            repository.stopCliInstanceEvents()
+            _uiState.update { it.copy(cliStreamStatus = "idle") }
+        }
+    }
+
+    private fun subscribeToCliInstance(instanceId: String) {
+        _uiState.update { it.copy(cliStreamStatus = "connecting") }
+        repository.observeCliInstanceEvents(
+            instanceId = instanceId,
+            onEvent = { event ->
+                val chunk = event.chunk ?: return@observeCliInstanceEvents
+                _uiState.update { state ->
+                    if (state.cliSelectedInstanceId != instanceId) {
+                        return@update state
+                    }
+                    val updated = state.cliInstances.map { instance ->
+                        if (instance.instanceId == instanceId) {
+                            val combined = if (instance.output.length > 200_000) {
+                                instance.output.takeLast(150_000) + chunk
+                            } else {
+                                instance.output + chunk
+                            }
+                            instance.copy(
+                                output = combined,
+                                eventCount = instance.eventCount + 1,
+                                status = if (event.source == "exit") "exited" else instance.status,
+                            )
+                        } else {
+                            instance
+                        }
+                    }
+                    state.copy(cliInstances = updated)
+                }
+            },
+            onState = { status ->
+                _uiState.update { it.copy(cliStreamStatus = status) }
+            },
+        )
     }
 
     fun refreshCliPanel() {
         launchAction {
             refreshCliInstances(loadPresetsIfMissing = true)
+        }
+    }
+
+    /**
+     * Background tick-driven refresh that won't toggle `isLoading` and won't surface errors
+     * — used by the CLI screen's periodic ticker so the list doesn't flash a spinner every
+     * few seconds.
+     */
+    fun refreshCliPanelQuietly() {
+        launchBackgroundRefresh {
+            refreshCliInstances(loadPresetsIfMissing = false)
         }
     }
 
@@ -233,6 +289,7 @@ class MagicHatViewModel(
                 )
             }
             refreshCliInstances(loadPresetsIfMissing = false)
+            subscribeToCliInstance(launched.instanceId)
         }
     }
 
@@ -264,16 +321,22 @@ class MagicHatViewModel(
 
     private suspend fun refreshCliInstances(loadPresetsIfMissing: Boolean) {
         if (repository.activeHost() == null) {
-            _uiState.update { it.copy(cliInstances = emptyList(), cliPresets = emptyList()) }
+            _uiState.update { it.copy(cliInstances = emptyList(), cliPresets = defaultCliPresets()) }
             return
         }
         val presets =
             if (loadPresetsIfMissing && _uiState.value.cliPresets.isEmpty()) {
-                repository.listCliPresets()
+                runCatching { repository.listCliPresets() }
+                    .getOrElse { throwable ->
+                        if (isHttpNotFound(throwable)) defaultCliPresets() else throw throwable
+                    }
             } else {
-                _uiState.value.cliPresets
+                _uiState.value.cliPresets.ifEmpty { defaultCliPresets() }
             }
-        val instances = repository.listCliInstances()
+        val instances = runCatching { repository.listCliInstances() }
+            .getOrElse { throwable ->
+                if (isHttpNotFound(throwable)) emptyList() else throw throwable
+            }
         _uiState.update { state ->
             val selection = state.cliSelectedInstanceId
             val selectedStillExists = selection != null && instances.any { it.instanceId == selection }
@@ -283,10 +346,14 @@ class MagicHatViewModel(
             state.copy(
                 cliPresets = presets,
                 cliInstances = instances,
-                cliSelectedInstanceId = if (selectedStillExists) selection else instances.firstOrNull()?.instanceId,
+                cliSelectedInstanceId = if (selectedStillExists) selection else null,
                 cliSelectedPreset = defaultPreset,
             )
         }
+    }
+
+    private fun isHttpNotFound(throwable: Throwable): Boolean {
+        return (throwable as? HttpException)?.code() == 404
     }
 
     fun clearError() {
@@ -594,6 +661,7 @@ class MagicHatViewModel(
 
     private fun resetInstanceContext() {
         repository.stopInstanceEvents()
+        repository.stopCliInstanceEvents()
         _uiState.update {
             it.copy(
                 instances = emptyList(),
@@ -606,6 +674,10 @@ class MagicHatViewModel(
                 promptInput = "",
                 followUpInput = "",
                 restoreSessionInput = "",
+                cliInstances = emptyList(),
+                cliPresets = emptyList(),
+                cliSelectedInstanceId = null,
+                cliStreamStatus = "idle",
             )
         }
     }
@@ -637,6 +709,29 @@ class MagicHatViewModel(
     }
 
     companion object {
+        private fun defaultCliPresets(): List<CliPreset> {
+            return listOf(
+                CliPreset(
+                    preset = "claude",
+                    label = "Claude Code",
+                    command = "claude",
+                    defaultArgs = listOf("--dangerously-skip-permissions", "--permission-mode", "plan"),
+                ),
+                CliPreset(
+                    preset = "codex",
+                    label = "Codex CLI",
+                    command = "codex",
+                    defaultArgs = listOf("--dangerously-bypass-approvals-and-sandbox"),
+                ),
+                CliPreset(
+                    preset = "gemini",
+                    label = "Gemini CLI",
+                    command = "gemini",
+                    defaultArgs = listOf("--yolo"),
+                ),
+            )
+        }
+
         private fun preferredTerminalAgent(detail: InstanceDetail, current: String?): String? {
             if (current != null && detail.terminalsByAgent.containsKey(current)) {
                 return current

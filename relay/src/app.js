@@ -683,6 +683,134 @@ export async function createRelayRuntime(options = {}) {
   );
 
   app.get(
+    "/v2/mobile/hosts/:hostId/cli-instances/presets",
+    asyncRoute(async (req, res) => {
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "list_cli_presets",
+        params: {},
+      });
+      res.json(result.result);
+    }),
+  );
+
+  app.get(
+    "/v2/mobile/hosts/:hostId/cli-instances",
+    asyncRoute(async (req, res) => {
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "list_cli_instances",
+        params: {},
+      });
+      res.json(result.result);
+    }),
+  );
+
+  app.post(
+    "/v2/mobile/hosts/:hostId/cli-instances",
+    asyncRoute(async (req, res) => {
+      if (!commandLimiter.check(req.auth.device_id)) {
+        res.status(429).json({ error: "rate_limited" });
+        return;
+      }
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "launch_cli_instance",
+        params: {
+          preset: `${req.body?.preset || ""}`.trim() || null,
+          title: `${req.body?.title || ""}`.trim() || null,
+          initial_prompt: `${req.body?.initial_prompt || ""}`.trim() || null,
+          extra_args: Array.isArray(req.body?.extra_args) ? req.body.extra_args : null,
+        },
+      });
+      res.status(201).json(result.result);
+    }),
+  );
+
+  app.get(
+    "/v2/mobile/hosts/:hostId/cli-instances/:instanceId",
+    asyncRoute(async (req, res) => {
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "get_cli_instance",
+        params: { instance_id: req.params.instanceId },
+      });
+      res.json(result.result);
+    }),
+  );
+
+  app.delete(
+    "/v2/mobile/hosts/:hostId/cli-instances/:instanceId",
+    asyncRoute(async (req, res) => {
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "close_cli_instance",
+        params: {
+          instance_id: req.params.instanceId,
+          force: `${req.query?.force || ""}` === "true",
+        },
+      });
+      res.status(202).json(result.result);
+    }),
+  );
+
+  app.post(
+    "/v2/mobile/hosts/:hostId/cli-instances/:instanceId/prompt",
+    asyncRoute(async (req, res) => {
+      if (!commandLimiter.check(req.auth.device_id)) {
+        res.status(429).json({ error: "rate_limited" });
+        return;
+      }
+      const prompt = `${req.body?.prompt || ""}`.trim();
+      if (!prompt) {
+        res.status(400).json({ error: "bad_request" });
+        return;
+      }
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "send_cli_prompt",
+        params: { instance_id: req.params.instanceId, prompt },
+      });
+      res.status(202).json(result.result);
+    }),
+  );
+
+  app.get(
+    "/v2/mobile/hosts/:hostId/cli-instances/:instanceId/updates",
+    asyncRoute(async (req, res) => {
+      const subscriptionId = randomId("sub");
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders?.();
+
+      subscriptions.set(subscriptionId, {
+        subscriptionId,
+        hostId: req.params.hostId,
+        instanceId: req.params.instanceId,
+        res,
+      });
+
+      try {
+        await dispatchCommandToHost(req.params.hostId, {
+          kind: "subscribe_cli_updates",
+          params: {
+            subscription_id: subscriptionId,
+            instance_id: req.params.instanceId,
+          },
+        });
+      } catch (error) {
+        subscriptions.delete(subscriptionId);
+        throw error;
+      }
+
+      req.on("close", async () => {
+        subscriptions.delete(subscriptionId);
+        try {
+          await dispatchCommandToHost(req.params.hostId, {
+            kind: "unsubscribe_cli_updates",
+            params: { subscription_id: subscriptionId },
+          });
+        } catch {}
+      });
+    }),
+  );
+
+  app.get(
     "/v2/mobile/hosts/:hostId/instances/:instanceId/updates",
     asyncRoute(async (req, res) => {
       const subscriptionId = randomId("sub");

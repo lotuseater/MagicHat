@@ -30,7 +30,7 @@ class SseEventStreamClient(
     private var active: StreamConfig? = null
     private var eventSource: EventSource? = null
     private var reconnectJob: Job? = null
-    private var onEvent: ((InstanceEvent) -> Unit)? = null
+    private var onRaw: ((String?, String) -> Unit)? = null
     private var onState: ((String) -> Unit)? = null
     private var closedByClient = false
 
@@ -41,11 +41,40 @@ class SseEventStreamClient(
         onEvent: (InstanceEvent) -> Unit,
         onState: (String) -> Unit,
     ) {
+        startRaw(
+            baseUrl = baseUrl,
+            streamPath = streamPath,
+            token = token,
+            onState = onState,
+            onRaw = { type, data ->
+                val parsed = runCatching { adapter.fromJson(data) }.getOrNull()
+                if (parsed != null) {
+                    onEvent(parsed)
+                } else {
+                    onEvent(
+                        InstanceEvent(
+                            type = type ?: "message",
+                            instanceId = null,
+                            message = data,
+                        ),
+                    )
+                }
+            },
+        )
+    }
+
+    fun startRaw(
+        baseUrl: String,
+        streamPath: String,
+        token: String,
+        onState: (String) -> Unit,
+        onRaw: (type: String?, data: String) -> Unit,
+    ) {
         stop()
         closedByClient = false
         this.active = StreamConfig(baseUrl, streamPath, token)
-        this.onEvent = onEvent
         this.onState = onState
+        this.onRaw = onRaw
         connect()
     }
 
@@ -82,19 +111,7 @@ class SseEventStreamClient(
                     type: String?,
                     data: String,
                 ) {
-                    val parsed = adapter.fromJson(data)
-                    if (parsed != null) {
-                        onEvent?.invoke(parsed)
-                        return
-                    }
-
-                    onEvent?.invoke(
-                        InstanceEvent(
-                            type = type ?: "message",
-                            instanceId = null,
-                            message = data,
-                        ),
-                    )
+                    onRaw?.invoke(type, data)
                 }
 
                 override fun onClosed(eventSource: EventSource) {

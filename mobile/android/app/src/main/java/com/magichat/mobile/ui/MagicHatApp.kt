@@ -178,6 +178,7 @@ fun MagicHatApp(
                     onSendFollowUp = viewModel::sendCliFollowUp,
                     onClose = viewModel::closeCliInstance,
                     onRefresh = viewModel::refreshCliPanel,
+                    onSilentRefresh = viewModel::refreshCliPanelQuietly,
                     onRefreshActiveHost = viewModel::refreshActiveHostStatus,
                 )
             }

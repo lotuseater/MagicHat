@@ -29,10 +29,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -40,7 +42,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.model.CliInstanceWire
-import com.magichat.mobile.model.HostConnectionMode
 import com.magichat.mobile.model.canRunCommands
 import com.magichat.mobile.state.MagicHatUiState
 import com.magichat.mobile.ui.components.HostContextCard
@@ -58,17 +59,27 @@ fun CliInstancesScreen(
     onSendFollowUp: () -> Unit,
     onClose: (String) -> Unit,
     onRefresh: () -> Unit,
+    onSilentRefresh: () -> Unit,
     onRefreshActiveHost: () -> Unit,
 ) {
     val hasActiveHost = state.activeHost != null
-    val isRemoteHost = state.activeHost?.let {
-        HostConnectionMode.fromWire(it.mode) == HostConnectionMode.REMOTE_RELAY
-    } ?: false
-    val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true && !isRemoteHost
+    val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
     val selected = state.cliSelectedInstanceId
         ?.let { id -> state.cliInstances.firstOrNull { it.instanceId == id } }
     val clipboard = LocalClipboardManager.current
     var pendingClose by remember { mutableStateOf<CliInstanceWire?>(null) }
+
+    // Auto-refresh the CLI instance list every 5 s while this screen is visible
+    // — catches child exits/status changes without forcing the user to pull-refresh.
+    // Uses the silent variant so a busy spinner doesn't flash every tick; SSE still
+    // delivers live output for the selected instance in between.
+    LaunchedEffect(canRunCommands, state.activeHost?.hostId) {
+        if (!canRunCommands) return@LaunchedEffect
+        while (true) {
+            delay(5_000)
+            onSilentRefresh()
+        }
+    }
 
     pendingClose?.let { target ->
         AlertDialog(
@@ -110,21 +121,10 @@ fun CliInstancesScreen(
             )
         }
 
-        if (isRemoteHost) {
-            item {
-                Text(
-                    "CLI instances are only available on LAN-paired hosts right now.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            return@LazyColumn
-        }
-
         if (!hasActiveHost) {
             item {
                 Text(
-                    "Pair a LAN host first on the Hosts screen.",
+                    "Pair a host first on the Hosts screen.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -161,7 +161,7 @@ fun CliInstancesScreen(
 
                     if (state.cliPresets.isEmpty()) {
                         Text(
-                            "Fetching presets…",
+                            if (state.isLoading) "Fetching presets…" else "No presets loaded yet. Tap Refresh to retry.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -306,6 +306,16 @@ private fun CliInstanceRow(
     onSelect: () -> Unit,
     onCloseRequested: () -> Unit,
 ) {
+    val clipboard = LocalClipboardManager.current
+    val fullCommand = remember(instance.command, instance.args) {
+        buildString {
+            append(instance.command)
+            instance.args.forEach { arg ->
+                append(' ')
+                append(shellQuote(arg))
+            }
+        }
+    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -347,6 +357,21 @@ private fun CliInstanceRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    fullCommand,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { clipboard.setText(AnnotatedString(fullCommand)) }) {
+                    Icon(
+                        Icons.Outlined.ContentCopy,
+                        contentDescription = "Copy command",
+                    )
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onSelect, enabled = enabled && !selected) {
                     Text(if (selected) "Open" else "View")
@@ -360,4 +385,13 @@ private fun CliInstanceRow(
             }
         }
     }
+}
+
+private fun shellQuote(arg: String): String {
+    if (arg.isEmpty()) return "''"
+    // If it's already "safe" (alnum + a few shell-harmless chars), leave it alone.
+    val safe = arg.all { c -> c.isLetterOrDigit() || c == '-' || c == '_' || c == '/' || c == '.' || c == '=' || c == ':' }
+    if (safe) return arg
+    // Otherwise wrap in single quotes, escaping any existing single quotes.
+    return "'" + arg.replace("'", "'\\''") + "'"
 }

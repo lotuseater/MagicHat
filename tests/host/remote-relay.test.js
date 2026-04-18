@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
+import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startHostServer } from "../../host/src/server.js";
 import { startRelayServer } from "../../relay/src/server.js";
+import { CliInstancesManager } from "../../host/src/operations/cliInstancesManager.js";
 import { buildBeaconEntry, createWorkspace, writeBeacon } from "./_helpers.js";
 
 function base64UrlEncode(buffer) {
@@ -143,6 +145,20 @@ async function readSseUntil(reader, matcher, timeoutMs = 8000) {
   }
 
   throw new Error("timeout_waiting_for_sse");
+}
+
+function fakeCliChild() {
+  const emitter = new EventEmitter();
+  emitter.stdout = new EventEmitter();
+  emitter.stderr = new EventEmitter();
+  emitter.stdin = {
+    destroyed: false,
+    writableEnded: false,
+    write: vi.fn(() => true),
+  };
+  emitter.pid = 7331;
+  emitter.kill = vi.fn();
+  return emitter;
 }
 
 describe("remote relay integration", () => {
@@ -706,5 +722,153 @@ describe("remote relay integration", () => {
 
     await relay.close();
     relayClosed = true;
+  });
+
+  it("forwards remote CLI list/launch/prompt/stream/close commands", async () => {
+    const workspace = await createWorkspace();
+    const relayRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-relay-test-"));
+    const relay = await startRelayServer({
+      config: {
+        listenHost: "127.0.0.1",
+        port: 0,
+        allowInsecureHttp: true,
+        database: {
+          kind: "sqlite",
+          sqlitePath: path.join(relayRoot, "relay.sqlite"),
+        },
+        accessTokenTtlMs: 15 * 60 * 1000,
+        refreshTokenTtlMs: 30 * 24 * 60 * 60 * 1000,
+        bootstrapTokenTtlMs: 10 * 60 * 1000,
+        heartbeatTimeoutMs: 60 * 1000,
+        requestTimeoutMs: 5000,
+        rateLimitWindowMs: 60 * 1000,
+        bootstrapClaimLimit: 20,
+        refreshLimit: 60,
+        commandLimit: 120,
+      },
+    });
+    cleanups.push(async () => {
+      await relay.close();
+      await fs.rm(relayRoot, { recursive: true, force: true });
+    });
+    const relayPort = relay.server.address().port;
+
+    const cliChild = fakeCliChild();
+    const cliInstancesManager = new CliInstancesManager({
+      spawnImpl: vi.fn(() => cliChild),
+      ptySpawnImpl: null,
+      now: (() => {
+        let tick = 10_000;
+        return () => ++tick;
+      })(),
+      statePath: path.join(workspace.root, "cli_instances.json"),
+    });
+    const host = await startHostServer({
+      allowNonWindows: true,
+      config: {
+        ...workspace.config,
+        listenHost: "127.0.0.1",
+        port: 0,
+        remote: {
+          enabled: true,
+          relayUrl: `http://127.0.0.1:${relayPort}`,
+          allowInsecureRelay: true,
+          remoteStatePath: path.join(workspace.root, "remote_state.json"),
+          bootstrapTtlMs: 10 * 60 * 1000,
+        },
+      },
+      processProbe: vi.fn(() => true),
+      ipcClient: {
+        inspect: vi.fn(async () => ({ status: "ok" })),
+        sendCommand: vi.fn(async () => ({ status: "ok" })),
+        tailEvents: vi.fn(async () => ({ source: "events", events: [], next_cursor: 0 })),
+      },
+      lifecycleManager: {
+        launchInstance: vi.fn(async () => buildBeaconEntry({ pid: 999 })),
+        closeInstance: vi.fn(async () => ({ status: "queued" })),
+      },
+      cliInstancesManager,
+    });
+    cleanups.push(async () => {
+      await host.close();
+      await fs.rm(workspace.root, { recursive: true, force: true });
+    });
+    const hostBaseUrl = `http://127.0.0.1:${host.server.address().port}`;
+
+    await waitFor(async () => {
+      const status = await requestJson("GET", `${hostBaseUrl}/admin/v2/remote/status`);
+      return status.body?.relay?.connected ? status.body : null;
+    });
+
+    const { registration } = await pairRemoteDevice({
+      relayPort,
+      hostBaseUrl,
+      deviceName: "CLI Remote Phone",
+    });
+    const accessToken = registration.body.access_token;
+    const hostId = registration.body.host_id;
+
+    const presets = await requestJson(
+      "GET",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/cli-instances/presets`,
+      { token: accessToken },
+    );
+    expect(presets.status).toBe(200);
+    expect(presets.body.presets.map((entry) => entry.preset).sort()).toEqual(["claude", "codex", "gemini"]);
+
+    const launch = await requestJson(
+      "POST",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/cli-instances`,
+      {
+        token: accessToken,
+        body: {
+          preset: "codex",
+          title: "Remote CLI",
+          initial_prompt: "inspect the repo",
+        },
+      },
+    );
+    expect(launch.status).toBe(201);
+    expect(launch.body.preset).toBe("codex");
+    expect(launch.body.status).toBe("running");
+
+    const listed = await requestJson(
+      "GET",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/cli-instances`,
+      { token: accessToken },
+    );
+    expect(listed.status).toBe(200);
+    expect(listed.body.instances).toHaveLength(1);
+
+    const instanceId = launch.body.instance_id;
+    const stream = await openEventStream(
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/cli-instances/${instanceId}/updates`,
+      accessToken,
+    );
+    const reader = stream.body.getReader();
+    cliChild.stdout.emit("data", Buffer.from("hello from cli"));
+    const streamed = await readSseUntil(reader, (text) => text.includes("hello from cli"));
+    expect(streamed).toContain("hello from cli");
+
+    const prompt = await requestJson(
+      "POST",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/cli-instances/${instanceId}/prompt`,
+      {
+        token: accessToken,
+        body: { prompt: "continue" },
+      },
+    );
+    expect(prompt.status).toBe(202);
+    expect(cliChild.stdin.write).toHaveBeenLastCalledWith("continue\n");
+
+    const close = await requestJson(
+      "DELETE",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/cli-instances/${instanceId}`,
+      { token: accessToken },
+    );
+    expect(close.status).toBe(202);
+    expect(cliChild.kill).toHaveBeenCalledWith("SIGTERM");
+
+    await reader.cancel();
   });
 });

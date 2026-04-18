@@ -31,7 +31,7 @@ describe("/v1/cli-instances", () => {
   });
 
   it("requires a paired session token", async () => {
-    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild() });
+    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild(), ptySpawnImpl: null });
     ctx = await createRuntime({ cliInstancesManager: manager });
 
     const unauthorized = await ctx.http.get("/v1/cli-instances");
@@ -39,7 +39,7 @@ describe("/v1/cli-instances", () => {
   });
 
   it("lists built-in presets", async () => {
-    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild() });
+    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild(), ptySpawnImpl: null });
     ctx = await createRuntime({ cliInstancesManager: manager });
     const token = await pairDevice(ctx);
 
@@ -52,7 +52,7 @@ describe("/v1/cli-instances", () => {
   it("launches a CLI instance and returns its summary", async () => {
     const child = fakeChild();
     const spawnImpl = vi.fn(() => child);
-    const manager = new CliInstancesManager({ spawnImpl });
+    const manager = new CliInstancesManager({ spawnImpl, ptySpawnImpl: null });
     ctx = await createRuntime({ cliInstancesManager: manager });
     const token = await pairDevice(ctx);
 
@@ -67,13 +67,13 @@ describe("/v1/cli-instances", () => {
     expect(response.body.status).toBe("running");
     expect(spawnImpl).toHaveBeenCalledOnce();
     const [command, args] = spawnImpl.mock.calls[0];
-    expect(command).toBe("claude");
+    expect(command.toLowerCase()).toContain("claude");
     expect(args).toContain("--dangerously-skip-permissions");
     expect(args[args.length - 1]).toBe("hello");
   });
 
   it("rejects launch without a preset", async () => {
-    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild() });
+    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild(), ptySpawnImpl: null });
     ctx = await createRuntime({ cliInstancesManager: manager });
     const token = await pairDevice(ctx);
 
@@ -85,7 +85,7 @@ describe("/v1/cli-instances", () => {
   });
 
   it("rejects launch with an unknown preset", async () => {
-    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild() });
+    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild(), ptySpawnImpl: null });
     ctx = await createRuntime({ cliInstancesManager: manager });
     const token = await pairDevice(ctx);
 
@@ -99,7 +99,7 @@ describe("/v1/cli-instances", () => {
 
   it("sends prompts over stdin to a running instance", async () => {
     const child = fakeChild();
-    const manager = new CliInstancesManager({ spawnImpl: () => child });
+    const manager = new CliInstancesManager({ spawnImpl: () => child, ptySpawnImpl: null });
     ctx = await createRuntime({ cliInstancesManager: manager });
     const token = await pairDevice(ctx);
 
@@ -119,7 +119,7 @@ describe("/v1/cli-instances", () => {
 
   it("closes a running instance via DELETE", async () => {
     const child = fakeChild();
-    const manager = new CliInstancesManager({ spawnImpl: () => child });
+    const manager = new CliInstancesManager({ spawnImpl: () => child, ptySpawnImpl: null });
     ctx = await createRuntime({ cliInstancesManager: manager });
     const token = await pairDevice(ctx);
 
@@ -136,7 +136,7 @@ describe("/v1/cli-instances", () => {
   });
 
   it("returns 404 for unknown instance ids", async () => {
-    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild() });
+    const manager = new CliInstancesManager({ spawnImpl: () => fakeChild(), ptySpawnImpl: null });
     ctx = await createRuntime({ cliInstancesManager: manager });
     const token = await pairDevice(ctx);
 

@@ -1,4 +1,5 @@
 import os from "node:os";
+import path from "node:path";
 import QRCode from "qrcode";
 import express from "express";
 import { readHostConfig } from "./config.js";
@@ -124,7 +125,11 @@ export function createMagicHatRuntime(options = {}) {
     });
 
   const cliInstancesManager =
-    options.cliInstancesManager || new CliInstancesManager();
+    options.cliInstancesManager ||
+    new CliInstancesManager({
+      statePath: path.join(path.dirname(config.statePath), "magichat_cli_instances.json"),
+      processProbe: options.processProbe,
+    });
 
   const relaySubscriptions = new Map();
 
@@ -208,6 +213,64 @@ export function createMagicHatRuntime(options = {}) {
             const active = relaySubscriptions.get(subscriptionId);
             if (active) {
               active.closed = true;
+              relaySubscriptions.delete(subscriptionId);
+            }
+            return { status: "unsubscribed", subscription_id: subscriptionId };
+          }
+          case "list_cli_presets":
+            return { presets: cliInstancesManager.listPresets() };
+          case "list_cli_instances":
+            return { instances: cliInstancesManager.listInstances() };
+          case "launch_cli_instance":
+            return cliInstancesManager.launchInstance({
+              preset: command.params.preset,
+              title: command.params.title,
+              initialPrompt: command.params.initial_prompt,
+              extraArgs: Array.isArray(command.params.extra_args) ? command.params.extra_args : undefined,
+            });
+          case "get_cli_instance":
+            return cliInstancesManager.getInstance(command.params.instance_id);
+          case "close_cli_instance":
+            return cliInstancesManager.closeInstance(command.params.instance_id, {
+              force: !!command.params.force,
+            });
+          case "send_cli_prompt":
+            return cliInstancesManager.sendPrompt(command.params.instance_id, command.params.prompt);
+          case "subscribe_cli_updates": {
+            const subscriptionId = command.params.subscription_id;
+            const instanceId = command.params.instance_id;
+            if (!subscriptionId || !instanceId) {
+              throw new Error("bad_request");
+            }
+            if (relaySubscriptions.has(subscriptionId)) {
+              return { status: "already_subscribed" };
+            }
+            const state = { closed: false, stop: null };
+            relaySubscriptions.set(subscriptionId, state);
+            try {
+              state.stop = cliInstancesManager.observeInstance(instanceId, {
+                sinceTs: 0,
+                onEvent: (event) => {
+                  if (state.closed) return;
+                  context.sendUpdate({
+                    subscription_id: subscriptionId,
+                    instance_id: instanceId,
+                    event,
+                  });
+                },
+              });
+            } catch (err) {
+              relaySubscriptions.delete(subscriptionId);
+              throw err;
+            }
+            return { status: "subscribed", subscription_id: subscriptionId };
+          }
+          case "unsubscribe_cli_updates": {
+            const subscriptionId = command.params.subscription_id;
+            const active = relaySubscriptions.get(subscriptionId);
+            if (active) {
+              active.closed = true;
+              try { active.stop?.(); } catch { /* ignore */ }
               relaySubscriptions.delete(subscriptionId);
             }
             return { status: "unsubscribed", subscription_id: subscriptionId };

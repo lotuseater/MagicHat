@@ -1,5 +1,8 @@
 import { EventEmitter } from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CliInstancesManager, CLI_PRESETS } from "../../host/src/operations/cliInstancesManager.js";
 
 function fakeChild() {
@@ -30,11 +33,23 @@ describe("CliInstancesManager", () => {
   let manager;
   let spawnImpl;
   let child;
+  let stateRoot;
+  let statePath;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     child = fakeChild();
     spawnImpl = vi.fn(() => child);
-    manager = new CliInstancesManager({ spawnImpl, now: () => 1_000 });
+    stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-cli-manager-"));
+    statePath = path.join(stateRoot, "cli_instances.json");
+    manager = new CliInstancesManager({ spawnImpl, ptySpawnImpl: null, now: () => 1_000, statePath });
+  });
+
+  afterEach(async () => {
+    if (stateRoot) {
+      await fs.rm(stateRoot, { recursive: true, force: true });
+      stateRoot = null;
+      statePath = null;
+    }
   });
 
   it("exposes the built-in presets", () => {
@@ -47,11 +62,12 @@ describe("CliInstancesManager", () => {
 
   it("launches with preset default args and records the instance", () => {
     const summary = manager.launchInstance({ preset: "claude", title: "explore repo" });
-    expect(spawnImpl).toHaveBeenCalledWith(
-      "claude",
+    const [command, resolvedArgs, options] = spawnImpl.mock.calls[0];
+    expect(command.toLowerCase()).toContain("claude");
+    expect(resolvedArgs).toEqual(
       expect.arrayContaining(["--dangerously-skip-permissions", "--permission-mode", "plan"]),
-      expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
     );
+    expect(options).toEqual(expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }));
     expect(summary.preset).toBe("claude");
     expect(summary.status).toBe("running");
     expect(summary.title).toBe("explore repo");
@@ -133,5 +149,129 @@ describe("CliInstancesManager", () => {
   it("keeps the preset table stable", () => {
     // Guard against accidental removal / rename — this shape is part of the wire contract.
     expect(Object.keys(CLI_PRESETS).sort()).toEqual(["claude", "codex", "gemini"]);
+  });
+
+  it("restores persisted instances across manager restart", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-cli-manager-"));
+    const restoreStatePath = path.join(tempRoot, "cli_instances.json");
+    const firstChild = fakeChild();
+    const firstManager = new CliInstancesManager({
+      spawnImpl: vi.fn(() => firstChild),
+      ptySpawnImpl: null,
+      now: () => 1_000,
+      statePath: restoreStatePath,
+    });
+
+    const launched = firstManager.launchInstance({ preset: "claude", title: "persist me" });
+    firstChild.stdout.emit("data", Buffer.from("hello"));
+
+    const restored = new CliInstancesManager({
+      spawnImpl: vi.fn(),
+      ptySpawnImpl: null,
+      now: () => 2_000,
+      statePath: restoreStatePath,
+      processProbe: vi.fn((pid) => pid === 4242),
+    });
+
+    const instances = restored.listInstances();
+    expect(instances).toHaveLength(1);
+    expect(instances[0].instance_id).toBe(launched.instance_id);
+    expect(instances[0].title).toBe("persist me");
+    expect(instances[0].output).toContain("hello");
+
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("can stop a restored running instance by pid", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-cli-manager-"));
+    const restoreStatePath = path.join(tempRoot, "cli_instances.json");
+    const child = fakeChild();
+    const manager = new CliInstancesManager({
+      spawnImpl: vi.fn(() => child),
+      ptySpawnImpl: null,
+      now: () => 1_000,
+      statePath: restoreStatePath,
+    });
+    const launched = manager.launchInstance({ preset: "gemini" });
+
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const restored = new CliInstancesManager({
+      spawnImpl: vi.fn(),
+      ptySpawnImpl: null,
+      now: () => 2_000,
+      statePath: restoreStatePath,
+      processProbe: vi.fn(() => true),
+    });
+
+    const result = restored.closeInstance(launched.instance_id);
+    expect(result.status).toBe("closing");
+    expect(killSpy).toHaveBeenCalledWith(4242, "SIGTERM");
+
+    killSpy.mockRestore();
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("resolves codex from common Windows tool paths", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-cli-manager-"));
+    const winHome = path.join(tempRoot, "home");
+    const codexDir = path.join(winHome, ".dotnet", "tools");
+    await fs.mkdir(codexDir, { recursive: true });
+    await fs.writeFile(path.join(codexDir, "codex.cmd"), "@echo off\r\n", "utf8");
+    const winManager = new CliInstancesManager({
+      spawnImpl,
+      ptySpawnImpl: null,
+      now: () => 1_000,
+      statePath: path.join(tempRoot, "cli_instances.json"),
+      platform: "win32",
+      env: {
+        PATH: "C:\\Windows\\System32",
+        USERPROFILE: winHome,
+        APPDATA: path.join(winHome, "AppData", "Roaming"),
+        SystemRoot: "C:\\Windows",
+      },
+    });
+
+    winManager.launchInstance({ preset: "codex" });
+
+    const [command, args, options] = spawnImpl.mock.calls[0];
+    expect(command).toContain(path.join(codexDir, "codex.cmd"));
+    expect(command).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(args).toEqual([]);
+    expect(options).toEqual(expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }));
+    expect(options.shell).toBe("C:\\Windows\\System32\\cmd.exe");
+
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("resolves gemini from roaming npm on Windows", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-cli-manager-"));
+    const winHome = path.join(tempRoot, "home");
+    const npmDir = path.join(winHome, "AppData", "Roaming", "npm");
+    await fs.mkdir(npmDir, { recursive: true });
+    await fs.writeFile(path.join(npmDir, "gemini.cmd"), "@echo off\r\n", "utf8");
+    const winManager = new CliInstancesManager({
+      spawnImpl,
+      ptySpawnImpl: null,
+      now: () => 1_000,
+      statePath: path.join(tempRoot, "cli_instances.json"),
+      platform: "win32",
+      env: {
+        PATH: "C:\\Windows\\System32",
+        USERPROFILE: winHome,
+        APPDATA: path.join(winHome, "AppData", "Roaming"),
+        SystemRoot: "C:\\Windows",
+      },
+    });
+
+    winManager.launchInstance({ preset: "gemini" });
+
+    const [command, args, options] = spawnImpl.mock.calls[0];
+    expect(command).toContain(path.join(npmDir, "gemini.cmd"));
+    expect(command).toContain("--yolo");
+    expect(args).toEqual([]);
+    expect(options).toEqual(expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }));
+    expect(options.shell).toBe("C:\\Windows\\System32\\cmd.exe");
+
+    await fs.rm(tempRoot, { recursive: true, force: true });
   });
 });

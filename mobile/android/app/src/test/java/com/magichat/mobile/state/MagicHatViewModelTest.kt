@@ -2,6 +2,8 @@ package com.magichat.mobile.state
 
 import com.google.common.truth.Truth.assertThat
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.CliPreset
+import com.magichat.mobile.model.CliInstanceWire
 import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.InstanceDetail
 import com.magichat.mobile.model.InstanceEvent
@@ -361,6 +363,76 @@ class MagicHatViewModelTest {
         assertThat(state.selectedDetail?.instance?.instanceId).isEqualTo("instance-1")
     }
 
+    @Test
+    fun navigateToCliLoadsPresetsAndInstances() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            cliPresetsResult = listOf(
+                CliPreset(preset = "claude", label = "Claude Code", command = "claude"),
+                CliPreset(preset = "codex", label = "Codex CLI", command = "codex"),
+            ),
+            cliInstancesResult = listOf(
+                CliInstanceWire(
+                    instanceId = "cli-1",
+                    preset = "claude",
+                    presetLabel = "Claude Code",
+                    title = "Existing Claude",
+                    command = "claude",
+                    status = "running",
+                ),
+            ),
+        )
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(state.screen).isEqualTo(MagicHatScreen.CLI_INSTANCES)
+        assertThat(repository.listCliPresetsCalls).isEqualTo(1)
+        assertThat(repository.listCliInstancesCalls).isEqualTo(1)
+        assertThat(state.cliPresets.map { it.preset }).containsExactly("claude", "codex").inOrder()
+        assertThat(state.cliInstances.map { it.instanceId }).containsExactly("cli-1")
+        assertThat(state.cliSelectedInstanceId).isNull()
+        assertThat(state.cliSelectedPreset).isEqualTo("claude")
+    }
+
+    @Test
+    fun navigateToCliRefreshesHostPresenceBeforeLoading() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            cliPresetsResult = listOf(
+                CliPreset(preset = "claude", label = "Claude Code", command = "claude"),
+            ),
+        )
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac", presence = "offline")),
+            activeHostId = "alpha",
+        )
+        repository.refreshActiveHostSideEffect = {
+            repository.pairingStateFlow.update { snapshot ->
+                snapshot.copy(
+                    pairedHosts = snapshot.pairedHosts.map { host ->
+                        if (host.hostId == "alpha") host.copy(lastKnownHostPresence = "online") else host
+                    },
+                )
+            }
+        }
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(repository.refreshActiveHostCalls).isEqualTo(1)
+        assertThat(state.activeHostPresence).isEqualTo("online")
+        assertThat(state.cliPresets.map { it.preset }).containsExactly("claude")
+    }
+
     private fun pairedHost(
         hostId: String,
         displayName: String,
@@ -396,6 +468,8 @@ class MagicHatViewModelTest {
 private class FakeMagicHatRepository(
     var instancesResult: List<TeamAppInstance> = emptyList(),
     var restoreRefsResult: List<KnownRestoreRef> = emptyList(),
+    var cliPresetsResult: List<CliPreset> = emptyList(),
+    var cliInstancesResult: List<com.magichat.mobile.model.CliInstanceWire> = emptyList(),
 ) : MagicHatRepositoryContract {
     val launchInstanceCalls = mutableListOf<LaunchInvocation>()
     val pairRemoteCalls = mutableListOf<RemotePairInvocation>()
@@ -406,6 +480,8 @@ private class FakeMagicHatRepository(
     var refreshActiveHostSideEffect: () -> Unit = {}
     var listInstancesCalls = 0
     var listRestoreRefsCalls = 0
+    var listCliPresetsCalls = 0
+    var listCliInstancesCalls = 0
     var refreshActiveHostCalls = 0
     var stopInstanceEventsCalls = 0
     var launchInstanceResult: InstanceDetail = InstanceDetail(instance = instance("launched"))
@@ -513,10 +589,15 @@ private class FakeMagicHatRepository(
         return InstanceDetail(instance = instance("restored"))
     }
 
-    override suspend fun listCliPresets(): List<com.magichat.mobile.model.CliPreset> = emptyList()
+    override suspend fun listCliPresets(): List<com.magichat.mobile.model.CliPreset> {
+        listCliPresetsCalls += 1
+        return cliPresetsResult
+    }
 
-    override suspend fun listCliInstances(): List<com.magichat.mobile.model.CliInstanceWire> =
-        emptyList()
+    override suspend fun listCliInstances(): List<com.magichat.mobile.model.CliInstanceWire> {
+        listCliInstancesCalls += 1
+        return cliInstancesResult
+    }
 
     override suspend fun getCliInstance(instanceId: String): com.magichat.mobile.model.CliInstanceWire {
         throw UnsupportedOperationException("test stub")
@@ -533,6 +614,16 @@ private class FakeMagicHatRepository(
     override suspend fun closeCliInstance(instanceId: String) = Unit
 
     override suspend fun sendCliPrompt(instanceId: String, prompt: String) = Unit
+
+    override fun observeCliInstanceEvents(
+        instanceId: String,
+        onEvent: (com.magichat.mobile.model.CliEvent) -> Unit,
+        onState: (String) -> Unit,
+    ) {
+        // no-op in viewmodel tests
+    }
+
+    override fun stopCliInstanceEvents() = Unit
 
     override fun observeInstanceEvents(
         instanceId: String,

@@ -1,5 +1,10 @@
 package com.magichat.mobile.network
 
+import com.magichat.mobile.model.CliInstanceWire
+import com.magichat.mobile.model.CliInstancesResponse
+import com.magichat.mobile.model.CliLaunchRequest
+import com.magichat.mobile.model.CliPresetsResponse
+import com.magichat.mobile.model.CliPromptRequest
 import com.magichat.mobile.model.FollowUpRequest
 import com.magichat.mobile.model.InstanceWire
 import com.magichat.mobile.model.InstancesResponse
@@ -100,4 +105,39 @@ interface MagicHatRelayApiService {
     suspend fun listRestoreRefs(
         @Path("hostId") hostId: String,
     ): RestoreRefsResponse
+
+    @GET("v2/mobile/hosts/{hostId}/cli-instances/presets")
+    suspend fun listCliPresets(
+        @Path("hostId") hostId: String,
+    ): CliPresetsResponse
+
+    @GET("v2/mobile/hosts/{hostId}/cli-instances")
+    suspend fun listCliInstances(
+        @Path("hostId") hostId: String,
+    ): CliInstancesResponse
+
+    @GET("v2/mobile/hosts/{hostId}/cli-instances/{instanceId}")
+    suspend fun getCliInstance(
+        @Path("hostId") hostId: String,
+        @Path("instanceId") instanceId: String,
+    ): CliInstanceWire
+
+    @POST("v2/mobile/hosts/{hostId}/cli-instances")
+    suspend fun launchCliInstance(
+        @Path("hostId") hostId: String,
+        @Body request: CliLaunchRequest,
+    ): CliInstanceWire
+
+    @DELETE("v2/mobile/hosts/{hostId}/cli-instances/{instanceId}")
+    suspend fun closeCliInstance(
+        @Path("hostId") hostId: String,
+        @Path("instanceId") instanceId: String,
+    ): SubmissionReceipt
+
+    @POST("v2/mobile/hosts/{hostId}/cli-instances/{instanceId}/prompt")
+    suspend fun sendCliPrompt(
+        @Path("hostId") hostId: String,
+        @Path("instanceId") instanceId: String,
+        @Body request: CliPromptRequest,
+    ): SubmissionReceipt
 }

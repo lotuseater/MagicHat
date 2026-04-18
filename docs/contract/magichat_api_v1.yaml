@@ -23,6 +23,7 @@ tags:
   - name: pairing
   - name: host
   - name: instances
+  - name: cli-instances
 
 security:
   - BearerAuth: []
@@ -396,6 +397,165 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/cli-instances/presets:
+    get:
+      tags: [cli-instances]
+      summary: List built-in CLI presets (claude, codex, gemini) and their default args.
+      operationId: listCliPresets
+      responses:
+        '200':
+          description: Available CLI presets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [presets]
+                properties:
+                  presets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CliPreset'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/cli-instances:
+    get:
+      tags: [cli-instances]
+      summary: List currently tracked CLI instances on the host.
+      operationId: listCliInstances
+      responses:
+        '200':
+          description: CLI instances snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instances]
+                properties:
+                  instances:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CliInstance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [cli-instances]
+      summary: Launch a new CLI instance with full-permissions / plan-mode defaults.
+      operationId: launchCliInstance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LaunchCliInstanceRequest'
+      responses:
+        '201':
+          description: CLI instance summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CliInstance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/cli-instances/{cliInstanceId}:
+    parameters:
+      - in: path
+        name: cliInstanceId
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [cli-instances]
+      summary: Get one CLI instance snapshot (status + captured output).
+      operationId: getCliInstance
+      responses:
+        '200':
+          description: CLI instance detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CliInstance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [cli-instances]
+      summary: Signal the CLI instance to exit (SIGTERM, or SIGKILL when ?force=true).
+      operationId: closeCliInstance
+      parameters:
+        - in: query
+          name: force
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '202':
+          description: Close queued.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/cli-instances/{cliInstanceId}/prompt:
+    parameters:
+      - in: path
+        name: cliInstanceId
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [cli-instances]
+      summary: Write a prompt to the CLI process stdin (newline appended if missing).
+      operationId: sendCliPrompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+      responses:
+        '202':
+          description: Prompt written.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: CLI is not running or stdin is unavailable.
+
+  /v1/cli-instances/{cliInstanceId}/updates:
+    parameters:
+      - in: path
+        name: cliInstanceId
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [cli-instances]
+      summary: Subscribe to CLI output chunks via Server-Sent Events.
+      operationId: subscribeCliUpdates
+      responses:
+        '200':
+          description: text/event-stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -609,6 +769,87 @@ components:
         prompt:
           type: string
           minLength: 1
+
+    CliPreset:
+      type: object
+      required: [preset, label, command, default_args]
+      properties:
+        preset:
+          type: string
+          enum: [claude, codex, gemini]
+        label:
+          type: string
+        command:
+          type: string
+        default_args:
+          type: array
+          items:
+            type: string
+          description: Baked-in flags applied at launch — full-permissions + plan-mode defaults.
+
+    CliInstance:
+      type: object
+      required: [instance_id, preset, preset_label, title, command, args, status, output, event_count]
+      properties:
+        instance_id:
+          type: string
+        preset:
+          type: string
+          enum: [claude, codex, gemini]
+        preset_label:
+          type: string
+        title:
+          type: string
+        command:
+          type: string
+        args:
+          type: array
+          items:
+            type: string
+        pid:
+          type: integer
+          nullable: true
+        started_at:
+          type: integer
+          format: int64
+          nullable: true
+        ended_at:
+          type: integer
+          format: int64
+          nullable: true
+        exit_code:
+          type: integer
+          nullable: true
+        exit_signal:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [running, exited, exited_error, error]
+        output:
+          type: string
+          description: Captured stdout+stderr so far (truncated in the middle when exceeding limits).
+        event_count:
+          type: integer
+
+    LaunchCliInstanceRequest:
+      type: object
+      required: [preset]
+      properties:
+        preset:
+          type: string
+          enum: [claude, codex, gemini]
+        title:
+          type: string
+          minLength: 1
+        initial_prompt:
+          type: string
+          description: Optional first prompt; passed as the trailing positional arg to the CLI.
+        extra_args:
+          type: array
+          items:
+            type: string
+          description: Extra raw CLI arguments inserted between defaults and the initial prompt.
 
     FollowUpRequest:
       type: object

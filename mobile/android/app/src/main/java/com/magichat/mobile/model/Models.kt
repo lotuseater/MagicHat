@@ -380,3 +380,9 @@ data class CliLaunchRequest(
 data class CliPromptRequest(
     val prompt: String,
 )
+
+data class CliEvent(
+    val ts: Long? = null,
+    val source: String? = null,
+    val chunk: String? = null,
+)

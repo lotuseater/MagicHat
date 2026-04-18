@@ -1,10 +1,12 @@
 package com.magichat.mobile.state
 
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.CliEvent
 import com.magichat.mobile.model.CliInstanceWire
 import com.magichat.mobile.model.CliLaunchRequest
 import com.magichat.mobile.model.CliPreset
 import com.magichat.mobile.model.CliPromptRequest
+import com.squareup.moshi.JsonAdapter
 import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.FollowUpRequest
 import com.magichat.mobile.model.HostConnectionMode
@@ -83,6 +85,14 @@ interface MagicHatRepositoryContract {
     )
 
     fun stopInstanceEvents()
+
+    fun observeCliInstanceEvents(
+        instanceId: String,
+        onEvent: (CliEvent) -> Unit,
+        onState: (String) -> Unit,
+    )
+
+    fun stopCliInstanceEvents()
 }
 
 class MagicHatRepository(
@@ -90,7 +100,11 @@ class MagicHatRepository(
     private val deviceKeyStore: DeviceKeyStoreContract,
     private val apiFactory: MagicHatApiFactory = MagicHatApiFactory(),
     private val sseEventStreamClient: SseEventStreamClient = SseEventStreamClient(apiFactory),
+    private val cliSseClient: SseEventStreamClient = SseEventStreamClient(apiFactory),
 ) : MagicHatRepositoryContract {
+
+    private val cliEventAdapter: JsonAdapter<CliEvent> =
+        MoshiFactory.instance.adapter(CliEvent::class.java)
 
     private data class ApiErrorResponse(
         val error: String? = null,
@@ -429,25 +443,34 @@ class MagicHatRepository(
 
     override suspend fun listCliPresets(): List<CliPreset> {
         val context = requireActiveContext()
-        requireLanForCli(context.record)
         return withTransportRetry {
-            lanApiFor(context.record).listCliPresets().presets
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).listCliPresets(context.record.hostId).presets
+            } else {
+                lanApiFor(context.record).listCliPresets().presets
+            }
         }
     }
 
     override suspend fun listCliInstances(): List<CliInstanceWire> {
         val context = requireActiveContext()
-        requireLanForCli(context.record)
         return withTransportRetry {
-            lanApiFor(context.record).listCliInstances().instances
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).listCliInstances(context.record.hostId).instances
+            } else {
+                lanApiFor(context.record).listCliInstances().instances
+            }
         }
     }
 
     override suspend fun getCliInstance(instanceId: String): CliInstanceWire {
         val context = requireActiveContext()
-        requireLanForCli(context.record)
         return withTransportRetry {
-            lanApiFor(context.record).getCliInstance(instanceId)
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).getCliInstance(context.record.hostId, instanceId)
+            } else {
+                lanApiFor(context.record).getCliInstance(instanceId)
+            }
         }
     }
 
@@ -457,36 +480,43 @@ class MagicHatRepository(
         initialPrompt: String?,
     ): CliInstanceWire {
         val context = requireActiveContext()
-        requireLanForCli(context.record)
         val request = CliLaunchRequest(
             preset = preset,
             title = title?.trim().takeUnless { it.isNullOrBlank() },
             initialPrompt = initialPrompt?.trim().takeUnless { it.isNullOrBlank() },
         )
         return withTransportRetry {
-            lanApiFor(context.record).launchCliInstance(request)
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).launchCliInstance(context.record.hostId, request)
+            } else {
+                lanApiFor(context.record).launchCliInstance(request)
+            }
         }
     }
 
     override suspend fun closeCliInstance(instanceId: String) {
         val context = requireActiveContext()
-        requireLanForCli(context.record)
         withTransportRetry {
-            lanApiFor(context.record).closeCliInstance(instanceId)
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).closeCliInstance(context.record.hostId, instanceId)
+            } else {
+                lanApiFor(context.record).closeCliInstance(instanceId)
+            }
         }
     }
 
     override suspend fun sendCliPrompt(instanceId: String, prompt: String) {
         val context = requireActiveContext()
-        requireLanForCli(context.record)
         withTransportRetry {
-            lanApiFor(context.record).sendCliPrompt(instanceId, CliPromptRequest(prompt = prompt))
-        }
-    }
-
-    private fun requireLanForCli(record: PairedHostRecord) {
-        if (isRemote(record)) {
-            error("CLI instances are only available for LAN-paired hosts for now.")
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).sendCliPrompt(
+                    context.record.hostId,
+                    instanceId,
+                    CliPromptRequest(prompt = prompt),
+                )
+            } else {
+                lanApiFor(context.record).sendCliPrompt(instanceId, CliPromptRequest(prompt = prompt))
+            }
         }
     }
 
@@ -516,6 +546,52 @@ class MagicHatRepository(
 
     override fun stopInstanceEvents() {
         sseEventStreamClient.stop()
+    }
+
+    override fun observeCliInstanceEvents(
+        instanceId: String,
+        onEvent: (CliEvent) -> Unit,
+        onState: (String) -> Unit,
+    ) {
+        val snapshot = runCatching { kotlinx.coroutines.runBlocking { pairingStore.readSnapshot() } }.getOrNull() ?: return
+        val activeHostId = snapshot.activeHostId ?: return
+        val record = snapshot.pairedHosts.firstOrNull { it.hostId == activeHostId } ?: return
+        val streamPath = if (isRemote(record)) {
+            "v2/mobile/hosts/${record.hostId}/cli-instances/$instanceId/updates"
+        } else {
+            "v1/cli-instances/$instanceId/updates"
+        }
+        cliSseClient.startRaw(
+            baseUrl = connectionBaseUrl(record),
+            streamPath = streamPath,
+            token = record.sessionToken,
+            onState = onState,
+            onRaw = { _, data ->
+                val parsed = runCatching { cliEventAdapter.fromJson(data) }.getOrNull()
+                if (parsed != null) {
+                    onEvent(parsed)
+                    return@startRaw
+                }
+                // Relay wraps the host event in { event: { ... } }; unwrap if present.
+                val wrapped = runCatching {
+                    MoshiFactory.instance.adapter(Map::class.java).fromJson(data)
+                }.getOrNull()
+                val innerMap = (wrapped?.get("event") as? Map<*, *>)?.let { inner ->
+                    CliEvent(
+                        ts = (inner["ts"] as? Number)?.toLong(),
+                        source = inner["source"] as? String,
+                        chunk = inner["chunk"] as? String,
+                    )
+                }
+                if (innerMap != null) {
+                    onEvent(innerMap)
+                }
+            },
+        )
+    }
+
+    override fun stopCliInstanceEvents() {
+        cliSseClient.stop()
     }
 
     private suspend fun requireActiveContext(): ActiveContext {
