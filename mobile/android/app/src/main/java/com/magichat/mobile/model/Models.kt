@@ -337,3 +337,46 @@ data class InstanceEvent(
 )
 
 data class InstancesResponse(val instances: List<InstanceWire>)
+
+data class CliPreset(
+    val preset: String,
+    val label: String,
+    val command: String,
+    @Json(name = "default_args") val defaultArgs: List<String> = emptyList(),
+)
+
+data class CliPresetsResponse(
+    val presets: List<CliPreset>,
+)
+
+data class CliInstanceWire(
+    @Json(name = "instance_id") val instanceId: String,
+    val preset: String,
+    @Json(name = "preset_label") val presetLabel: String,
+    val title: String,
+    val command: String,
+    val args: List<String> = emptyList(),
+    val pid: Int? = null,
+    @Json(name = "started_at") val startedAt: Long? = null,
+    @Json(name = "ended_at") val endedAt: Long? = null,
+    @Json(name = "exit_code") val exitCode: Int? = null,
+    @Json(name = "exit_signal") val exitSignal: String? = null,
+    val status: String,
+    val output: String = "",
+    @Json(name = "event_count") val eventCount: Int = 0,
+)
+
+data class CliInstancesResponse(
+    val instances: List<CliInstanceWire>,
+)
+
+data class CliLaunchRequest(
+    val preset: String,
+    val title: String? = null,
+    @Json(name = "initial_prompt") val initialPrompt: String? = null,
+    @Json(name = "extra_args") val extraArgs: List<String>? = null,
+)
+
+data class CliPromptRequest(
+    val prompt: String,
+)

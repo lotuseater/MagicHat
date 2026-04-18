@@ -55,6 +55,7 @@ export async function createRuntime(options = {}) {
     lifecycleManager: options.lifecycleManager,
     processController: options.processController,
     lanGuardOptions: options.lanGuardOptions,
+    cliInstancesManager: options.cliInstancesManager,
   });
 
   const server = await new Promise((resolve, reject) => {
@@ -107,6 +108,9 @@ export async function createRuntime(options = {}) {
       },
       post(pathname, reqOptions = {}) {
         return request("POST", pathname, reqOptions);
+      },
+      delete(pathname, reqOptions = {}) {
+        return request("DELETE", pathname, reqOptions);
       },
     },
     async cleanup() {

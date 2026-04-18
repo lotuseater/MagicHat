@@ -513,6 +513,27 @@ private class FakeMagicHatRepository(
         return InstanceDetail(instance = instance("restored"))
     }
 
+    override suspend fun listCliPresets(): List<com.magichat.mobile.model.CliPreset> = emptyList()
+
+    override suspend fun listCliInstances(): List<com.magichat.mobile.model.CliInstanceWire> =
+        emptyList()
+
+    override suspend fun getCliInstance(instanceId: String): com.magichat.mobile.model.CliInstanceWire {
+        throw UnsupportedOperationException("test stub")
+    }
+
+    override suspend fun launchCliInstance(
+        preset: String,
+        title: String?,
+        initialPrompt: String?,
+    ): com.magichat.mobile.model.CliInstanceWire {
+        throw UnsupportedOperationException("test stub")
+    }
+
+    override suspend fun closeCliInstance(instanceId: String) = Unit
+
+    override suspend fun sendCliPrompt(instanceId: String, prompt: String) = Unit
+
     override fun observeInstanceEvents(
         instanceId: String,
         onEvent: (InstanceEvent) -> Unit,

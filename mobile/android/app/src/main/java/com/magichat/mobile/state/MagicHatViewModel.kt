@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.CliInstanceWire
+import com.magichat.mobile.model.CliPreset
 import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.InstanceDetail
 import com.magichat.mobile.model.InstanceEvent
@@ -26,6 +28,7 @@ enum class MagicHatScreen {
     PAIRED_PC_SELECTION,
     INSTANCES,
     INSTANCE_DETAIL,
+    CLI_INSTANCES,
 }
 
 data class MagicHatUiState(
@@ -53,6 +56,12 @@ data class MagicHatUiState(
     val selectedTerminalAgent: String? = null,
     val streamEvents: List<InstanceEvent> = emptyList(),
     val streamStatus: String = "idle",
+    val cliPresets: List<CliPreset> = emptyList(),
+    val cliInstances: List<CliInstanceWire> = emptyList(),
+    val cliSelectedPreset: String = "claude",
+    val cliLaunchPromptInput: String = "",
+    val cliFollowUpInput: String = "",
+    val cliSelectedInstanceId: String? = null,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
 )
@@ -175,7 +184,108 @@ class MagicHatViewModel(
                 }
             }
 
+            MagicHatScreen.CLI_INSTANCES -> {
+                launchBackgroundRefresh {
+                    refreshCliInstances(loadPresetsIfMissing = true)
+                }
+            }
+
             MagicHatScreen.PAIRED_PC_SELECTION -> Unit
+        }
+    }
+
+    fun updateCliPreset(value: String) {
+        _uiState.update { it.copy(cliSelectedPreset = value) }
+    }
+
+    fun updateCliLaunchPrompt(value: String) {
+        _uiState.update { it.copy(cliLaunchPromptInput = value) }
+    }
+
+    fun updateCliFollowUp(value: String) {
+        _uiState.update { it.copy(cliFollowUpInput = value) }
+    }
+
+    fun selectCliInstance(instanceId: String?) {
+        _uiState.update { it.copy(cliSelectedInstanceId = instanceId) }
+    }
+
+    fun refreshCliPanel() {
+        launchAction {
+            refreshCliInstances(loadPresetsIfMissing = true)
+        }
+    }
+
+    fun launchCliInstance() {
+        launchAction {
+            val state = _uiState.value
+            val preset = state.cliSelectedPreset
+            val prompt = state.cliLaunchPromptInput
+            val launched = repository.launchCliInstance(
+                preset = preset,
+                title = prompt.takeIf { it.isNotBlank() }?.take(48),
+                initialPrompt = prompt,
+            )
+            _uiState.update {
+                it.copy(
+                    cliLaunchPromptInput = "",
+                    cliSelectedInstanceId = launched.instanceId,
+                )
+            }
+            refreshCliInstances(loadPresetsIfMissing = false)
+        }
+    }
+
+    fun sendCliFollowUp() {
+        launchAction {
+            val state = _uiState.value
+            val instanceId = state.cliSelectedInstanceId ?: error("Select a CLI instance first")
+            val prompt = state.cliFollowUpInput
+            if (prompt.isBlank()) {
+                error("Follow-up prompt is empty")
+            }
+            repository.sendCliPrompt(instanceId, prompt)
+            _uiState.update { it.copy(cliFollowUpInput = "") }
+            refreshCliInstances(loadPresetsIfMissing = false)
+        }
+    }
+
+    fun closeCliInstance(instanceId: String) {
+        launchAction {
+            repository.closeCliInstance(instanceId)
+            _uiState.update { state ->
+                state.copy(
+                    cliSelectedInstanceId = state.cliSelectedInstanceId.takeUnless { it == instanceId },
+                )
+            }
+            refreshCliInstances(loadPresetsIfMissing = false)
+        }
+    }
+
+    private suspend fun refreshCliInstances(loadPresetsIfMissing: Boolean) {
+        if (repository.activeHost() == null) {
+            _uiState.update { it.copy(cliInstances = emptyList(), cliPresets = emptyList()) }
+            return
+        }
+        val presets =
+            if (loadPresetsIfMissing && _uiState.value.cliPresets.isEmpty()) {
+                repository.listCliPresets()
+            } else {
+                _uiState.value.cliPresets
+            }
+        val instances = repository.listCliInstances()
+        _uiState.update { state ->
+            val selection = state.cliSelectedInstanceId
+            val selectedStillExists = selection != null && instances.any { it.instanceId == selection }
+            val defaultPreset = presets.firstOrNull { it.preset == state.cliSelectedPreset }?.preset
+                ?: presets.firstOrNull()?.preset
+                ?: state.cliSelectedPreset
+            state.copy(
+                cliPresets = presets,
+                cliInstances = instances,
+                cliSelectedInstanceId = if (selectedStillExists) selection else instances.firstOrNull()?.instanceId,
+                cliSelectedPreset = defaultPreset,
+            )
         }
     }
 

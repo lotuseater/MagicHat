@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Terminal
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.state.MagicHatScreen
 import com.magichat.mobile.state.MagicHatViewModel
+import com.magichat.mobile.ui.screens.CliInstancesScreen
 import com.magichat.mobile.ui.screens.InstanceDetailScreen
 import com.magichat.mobile.ui.screens.InstancesScreen
 import com.magichat.mobile.ui.screens.PairingScreen
@@ -57,6 +59,7 @@ fun MagicHatApp(
                             MagicHatScreen.PAIRED_PC_SELECTION -> "Hosts"
                             MagicHatScreen.INSTANCES -> "Sessions"
                             MagicHatScreen.INSTANCE_DETAIL -> "Session"
+                            MagicHatScreen.CLI_INSTANCES -> "CLI"
                         },
                     )
                 },
@@ -89,6 +92,12 @@ fun MagicHatApp(
                     icon = { Icon(Icons.Outlined.Terminal, contentDescription = null) },
                     enabled = uiState.selectedInstanceId != null,
                     label = { Text("Session") },
+                )
+                NavigationBarItem(
+                    selected = uiState.screen == MagicHatScreen.CLI_INSTANCES,
+                    onClick = { viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES) },
+                    icon = { Icon(Icons.Outlined.Code, contentDescription = null) },
+                    label = { Text("CLI") },
                 )
             }
         },
@@ -158,6 +167,19 @@ fun MagicHatApp(
                         )
                     }
                 }
+
+                MagicHatScreen.CLI_INSTANCES -> CliInstancesScreen(
+                    state = uiState,
+                    onPresetChanged = viewModel::updateCliPreset,
+                    onLaunchPromptChanged = viewModel::updateCliLaunchPrompt,
+                    onLaunch = viewModel::launchCliInstance,
+                    onSelectInstance = { viewModel.selectCliInstance(it) },
+                    onFollowUpChanged = viewModel::updateCliFollowUp,
+                    onSendFollowUp = viewModel::sendCliFollowUp,
+                    onClose = viewModel::closeCliInstance,
+                    onRefresh = viewModel::refreshCliPanel,
+                    onRefreshActiveHost = viewModel::refreshActiveHostStatus,
+                )
             }
         }
     }

@@ -1,5 +1,10 @@
 package com.magichat.mobile.network
 
+import com.magichat.mobile.model.CliInstanceWire
+import com.magichat.mobile.model.CliInstancesResponse
+import com.magichat.mobile.model.CliLaunchRequest
+import com.magichat.mobile.model.CliPresetsResponse
+import com.magichat.mobile.model.CliPromptRequest
 import com.magichat.mobile.model.FollowUpRequest
 import com.magichat.mobile.model.HealthzResponse
 import com.magichat.mobile.model.HostInfoResponse
@@ -67,5 +72,32 @@ interface MagicHatApiService {
     suspend fun answerTrustPrompt(
         @Path("instanceId") instanceId: String,
         @Body request: TrustRequest,
+    ): SubmissionReceipt
+
+    @GET("v1/cli-instances/presets")
+    suspend fun listCliPresets(): CliPresetsResponse
+
+    @GET("v1/cli-instances")
+    suspend fun listCliInstances(): CliInstancesResponse
+
+    @GET("v1/cli-instances/{instanceId}")
+    suspend fun getCliInstance(
+        @Path("instanceId") instanceId: String,
+    ): CliInstanceWire
+
+    @POST("v1/cli-instances")
+    suspend fun launchCliInstance(
+        @Body request: CliLaunchRequest,
+    ): CliInstanceWire
+
+    @DELETE("v1/cli-instances/{instanceId}")
+    suspend fun closeCliInstance(
+        @Path("instanceId") instanceId: String,
+    )
+
+    @POST("v1/cli-instances/{instanceId}/prompt")
+    suspend fun sendCliPrompt(
+        @Path("instanceId") instanceId: String,
+        @Body request: CliPromptRequest,
     ): SubmissionReceipt
 }

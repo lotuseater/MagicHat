@@ -10,6 +10,7 @@ import { TeamAppIpcClient } from "./teamapp/ipcClient.js";
 import { ProcessController } from "./lifecycle/processController.js";
 import { LifecycleManager } from "./lifecycle/lifecycleManager.js";
 import { HostControlService } from "./operations/hostControlService.js";
+import { CliInstancesManager } from "./operations/cliInstancesManager.js";
 import { RemoteAccessState } from "./remote/remoteAccessState.js";
 import { RelayClient } from "./remote/relayClient.js";
 
@@ -121,6 +122,9 @@ export function createMagicHatRuntime(options = {}) {
       lifecycleManager,
       remoteAccessState,
     });
+
+  const cliInstancesManager =
+    options.cliInstancesManager || new CliInstancesManager();
 
   const relaySubscriptions = new Map();
 
@@ -401,6 +405,148 @@ export function createMagicHatRuntime(options = {}) {
         remoteSafe: !!restoreRef,
       });
       res.status(202).json({ status: "queued" });
+    }),
+  );
+
+  app.get(
+    "/v1/cli-instances/presets",
+    asyncRoute(async (_req, res) => {
+      res.json({ presets: cliInstancesManager.listPresets() });
+    }),
+  );
+
+  app.get(
+    "/v1/cli-instances",
+    asyncRoute(async (_req, res) => {
+      res.json({ instances: cliInstancesManager.listInstances() });
+    }),
+  );
+
+  app.post(
+    "/v1/cli-instances",
+    asyncRoute(async (req, res) => {
+      const preset = `${req.body?.preset || ""}`.trim();
+      if (!preset) {
+        res.status(400).json({ error: "bad_request", detail: "preset is required" });
+        return;
+      }
+      try {
+        const launched = cliInstancesManager.launchInstance({
+          preset,
+          title: req.body?.title,
+          initialPrompt: req.body?.initial_prompt,
+          extraArgs: Array.isArray(req.body?.extra_args) ? req.body.extra_args : undefined,
+        });
+        res.status(201).json(launched);
+      } catch (err) {
+        if (err?.code === "unknown_cli_preset") {
+          res.status(400).json({ error: err.code });
+          return;
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.get(
+    "/v1/cli-instances/:id",
+    asyncRoute(async (req, res) => {
+      try {
+        res.json(cliInstancesManager.getInstance(req.params.id));
+      } catch (err) {
+        if (err?.code === "cli_instance_not_found") {
+          res.status(404).json({ error: err.code });
+          return;
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.delete(
+    "/v1/cli-instances/:id",
+    asyncRoute(async (req, res) => {
+      const force = parseBoolean(req.query.force, false);
+      try {
+        const result = cliInstancesManager.closeInstance(req.params.id, { force });
+        res.status(202).json(result);
+      } catch (err) {
+        if (err?.code === "cli_instance_not_found") {
+          res.status(404).json({ error: err.code });
+          return;
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.post(
+    "/v1/cli-instances/:id/prompt",
+    asyncRoute(async (req, res) => {
+      const prompt = `${req.body?.prompt || ""}`.trim();
+      if (!prompt) {
+        res.status(400).json({ error: "bad_request" });
+        return;
+      }
+      try {
+        const result = cliInstancesManager.sendPrompt(req.params.id, prompt);
+        res.status(202).json(result);
+      } catch (err) {
+        if (err?.code === "cli_instance_not_found") {
+          res.status(404).json({ error: err.code });
+          return;
+        }
+        if (err?.code === "cli_instance_not_running" || err?.code === "stdin_unavailable") {
+          res.status(409).json({ error: err.code });
+          return;
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.get(
+    "/v1/cli-instances/:id/updates",
+    asyncRoute(async (req, res) => {
+      try {
+        cliInstancesManager.getInstance(req.params.id);
+      } catch (err) {
+        if (err?.code === "cli_instance_not_found") {
+          res.status(404).json({ error: err.code });
+          return;
+        }
+        throw err;
+      }
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders?.();
+
+      const rawSince = req.query.since_ts ?? req.get("last-event-id") ?? 0;
+      let sinceTs = Number.parseInt(rawSince, 10);
+      if (!Number.isFinite(sinceTs) || sinceTs < 0) {
+        sinceTs = 0;
+      }
+
+      let counter = sinceTs;
+      const stop = cliInstancesManager.observeInstance(req.params.id, {
+        sinceTs,
+        onEvent: (event) => {
+          counter += 1;
+          res.write(toSseEvent(event.source, counter, event));
+        },
+      });
+
+      const heartbeat = setInterval(() => {
+        res.write(toSseEvent("heartbeat", counter, { ts: Date.now() }));
+      }, 15_000);
+
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        stop();
+        res.end();
+      });
     }),
   );
 

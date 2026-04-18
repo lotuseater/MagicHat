@@ -1,6 +1,10 @@
 package com.magichat.mobile.state
 
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.CliInstanceWire
+import com.magichat.mobile.model.CliLaunchRequest
+import com.magichat.mobile.model.CliPreset
+import com.magichat.mobile.model.CliPromptRequest
 import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.FollowUpRequest
 import com.magichat.mobile.model.HostConnectionMode
@@ -60,6 +64,17 @@ interface MagicHatRepositoryContract {
     suspend fun sendFollowUp(instanceId: String, followUp: String): SubmissionReceipt
     suspend fun answerTrustPrompt(instanceId: String, approved: Boolean): SubmissionReceipt
     suspend fun restoreSession(restoreSelector: String): InstanceDetail
+
+    suspend fun listCliPresets(): List<CliPreset>
+    suspend fun listCliInstances(): List<CliInstanceWire>
+    suspend fun getCliInstance(instanceId: String): CliInstanceWire
+    suspend fun launchCliInstance(
+        preset: String,
+        title: String?,
+        initialPrompt: String?,
+    ): CliInstanceWire
+    suspend fun closeCliInstance(instanceId: String)
+    suspend fun sendCliPrompt(instanceId: String, prompt: String)
 
     fun observeInstanceEvents(
         instanceId: String,
@@ -410,6 +425,69 @@ class MagicHatRepository(
             }
         }
         return getInstanceDetail(instanceKey(launched))
+    }
+
+    override suspend fun listCliPresets(): List<CliPreset> {
+        val context = requireActiveContext()
+        requireLanForCli(context.record)
+        return withTransportRetry {
+            lanApiFor(context.record).listCliPresets().presets
+        }
+    }
+
+    override suspend fun listCliInstances(): List<CliInstanceWire> {
+        val context = requireActiveContext()
+        requireLanForCli(context.record)
+        return withTransportRetry {
+            lanApiFor(context.record).listCliInstances().instances
+        }
+    }
+
+    override suspend fun getCliInstance(instanceId: String): CliInstanceWire {
+        val context = requireActiveContext()
+        requireLanForCli(context.record)
+        return withTransportRetry {
+            lanApiFor(context.record).getCliInstance(instanceId)
+        }
+    }
+
+    override suspend fun launchCliInstance(
+        preset: String,
+        title: String?,
+        initialPrompt: String?,
+    ): CliInstanceWire {
+        val context = requireActiveContext()
+        requireLanForCli(context.record)
+        val request = CliLaunchRequest(
+            preset = preset,
+            title = title?.trim().takeUnless { it.isNullOrBlank() },
+            initialPrompt = initialPrompt?.trim().takeUnless { it.isNullOrBlank() },
+        )
+        return withTransportRetry {
+            lanApiFor(context.record).launchCliInstance(request)
+        }
+    }
+
+    override suspend fun closeCliInstance(instanceId: String) {
+        val context = requireActiveContext()
+        requireLanForCli(context.record)
+        withTransportRetry {
+            lanApiFor(context.record).closeCliInstance(instanceId)
+        }
+    }
+
+    override suspend fun sendCliPrompt(instanceId: String, prompt: String) {
+        val context = requireActiveContext()
+        requireLanForCli(context.record)
+        withTransportRetry {
+            lanApiFor(context.record).sendCliPrompt(instanceId, CliPromptRequest(prompt = prompt))
+        }
+    }
+
+    private fun requireLanForCli(record: PairedHostRecord) {
+        if (isRemote(record)) {
+            error("CLI instances are only available for LAN-paired hosts for now.")
+        }
     }
 
     override fun observeInstanceEvents(
