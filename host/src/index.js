@@ -9,6 +9,15 @@ async function main() {
     console.log(`Remote relay configured: ${runtime.config.remote.relayUrl}`);
     console.log("Generate a remote pairing QR/URI via GET /admin/v2/remote/status or POST /admin/v2/remote/bootstrap on localhost.");
   }
+
+  // Whenever the pairing code rotates (after a successful pair, or when the
+  // previous one expires), print the new code so the user can re-pair —
+  // including after a "Forget PC" on the mobile side — without restarting.
+  runtime.pairingManager.on("pairing_code_issued", (pairing) => {
+    console.log(
+      `New pairing code: ${pairing.code} (expires at ${new Date(pairing.expires_at_ms).toISOString()})`,
+    );
+  });
 }
 
 main().catch((error) => {

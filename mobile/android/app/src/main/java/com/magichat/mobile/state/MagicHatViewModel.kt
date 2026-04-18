@@ -197,14 +197,18 @@ class MagicHatViewModel(
             }
 
             MagicHatScreen.CLI_INSTANCES -> {
-                launchAction {
+                // Silent background refresh: an error here (host briefly
+                // unreachable, not-yet-implemented endpoint, etc.) shouldn't
+                // surface as a snackbar the user has to dismiss — the empty
+                // state + explicit Refresh button is enough.
+                launchBackgroundRefresh {
                     repository.refreshActiveHost()
                     refreshCliInstances(loadPresetsIfMissing = true)
                 }
             }
 
             MagicHatScreen.BROWSER -> {
-                launchAction {
+                launchBackgroundRefresh {
                     repository.refreshActiveHost()
                     refreshBrowserPages()
                 }

@@ -704,6 +704,11 @@ class MagicHatRepository(
             record.copy(lastKnownHostPresence = hostState?.status ?: "offline")
         } catch (_: IOException) {
             record.copy(lastKnownHostPresence = "offline")
+        } catch (http: HttpException) {
+            // Host is reachable (relay answered) but we got a non-2xx. Treat as
+            // offline so the chip is accurate and no exception propagates up
+            // into a user-facing error snackbar.
+            record.copy(lastKnownHostPresence = "offline")
         }
     }
 
@@ -712,6 +717,10 @@ class MagicHatRepository(
             withTransportRetry { lanApiFor(record).getHealth() }
             record.copy(lastKnownHostPresence = "online")
         } catch (_: IOException) {
+            record.copy(lastKnownHostPresence = "offline")
+        } catch (http: HttpException) {
+            // /healthz returned a non-2xx — unusual, but don't raise the error
+            // to the user; mark offline so the chip is honest and move on.
             record.copy(lastKnownHostPresence = "offline")
         }
     }

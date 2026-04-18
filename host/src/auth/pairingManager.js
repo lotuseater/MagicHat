@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import crypto from "node:crypto";
 import { readJsonFileSync, writeJsonFileSync } from "../state/jsonStateStore.js";
 
@@ -9,8 +10,9 @@ function issueToken() {
   return crypto.randomBytes(24).toString("hex");
 }
 
-export class PairingManager {
+export class PairingManager extends EventEmitter {
   constructor(options) {
+    super();
     this.statePath = options.statePath;
     this.clock = options.clock || (() => Date.now());
     this.generateCode = options.generateCode || defaultCodeGenerator;
@@ -54,6 +56,7 @@ export class PairingManager {
 
     this.state.active_pairing = pairing;
     this.persist();
+    this.emit("pairing_code_issued", pairing);
 
     return pairing;
   }
@@ -90,7 +93,28 @@ export class PairingManager {
     this.state.paired_devices = [...(this.state.paired_devices || []), record];
     this.persist();
 
+    // Immediately mint a fresh pairing code so the host can re-pair after a
+    // Forget PC or additional device without restarting the process. The
+    // emitted event lets index.js (or any UI) print the new code to console.
+    this.issuePairingCode();
+
     return { status: "ok", record };
+  }
+
+  // Operator-facing helper: forget a previously paired device (by token or
+  // device_id) without re-pairing. Returns true if something was removed.
+  removePairedDevice({ token, deviceId } = {}) {
+    const before = (this.state.paired_devices || []).length;
+    this.state.paired_devices = (this.state.paired_devices || []).filter((entry) => {
+      if (token && entry.token === token) return false;
+      if (deviceId && entry.device_id === deviceId) return false;
+      return true;
+    });
+    const removed = this.state.paired_devices.length !== before;
+    if (removed) {
+      this.persist();
+    }
+    return removed;
   }
 
   validateToken(token) {
