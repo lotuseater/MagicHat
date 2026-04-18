@@ -24,6 +24,8 @@ tags:
   - name: host
   - name: instances
   - name: cli-instances
+  - name: browser
+  - name: quick-actions
 
 security:
   - BearerAuth: []
@@ -533,6 +535,94 @@ paths:
         '409':
           description: CLI is not running or stdin is unavailable.
 
+  /v1/quick-actions:
+    get:
+      tags: [quick-actions]
+      summary: List the quick-action kinds this host exposes.
+      operationId: listQuickActions
+      responses:
+        '200':
+          description: Available quick actions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [actions]
+                properties:
+                  actions:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [quick-actions]
+      summary: Run a quick action (open URL, web search, launch app, or a browser_* delegation).
+      operationId: runQuickAction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuickAction'
+      responses:
+        '202':
+          description: Action dispatched.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Browser control is not available on this host.
+
+  /v1/browser/pages:
+    get:
+      tags: [browser]
+      summary: List open Chromium pages controlled by the host.
+      operationId: listBrowserPages
+      responses:
+        '200':
+          description: Page list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pages]
+                properties:
+                  pages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BrowserPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/browser/actions:
+    post:
+      tags: [browser]
+      summary: Run a browser-scoped action (shares the quick-action contract).
+      operationId: runBrowserAction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuickAction'
+      responses:
+        '202':
+          description: Action dispatched.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Page / click / fill target was not found.
+        '409':
+          description: Browser control is not available on this host.
+
   /v1/cli-instances/{cliInstanceId}/updates:
     parameters:
       - in: path
@@ -831,6 +921,75 @@ components:
           description: Captured stdout+stderr so far (truncated in the middle when exceeding limits).
         event_count:
           type: integer
+
+    BrowserPage:
+      type: object
+      required: [page_id, url, title, selected]
+      properties:
+        page_id:
+          type: string
+          description: Stable ID assigned by the host for the lifetime of the page.
+        url:
+          type: string
+        title:
+          type: string
+        selected:
+          type: boolean
+          description: True if this page is the current focus target for click/fill actions.
+
+    QuickAction:
+      type: object
+      required: [kind]
+      discriminator:
+        propertyName: kind
+      properties:
+        kind:
+          type: string
+          enum:
+            - open_url
+            - web_search
+            - launch_app
+            - browser_open
+            - browser_search
+            - browser_list_pages
+            - browser_select_page
+            - browser_click_text
+            - browser_click_selector
+            - browser_fill
+            - browser_snapshot
+        url:
+          type: string
+          description: Used by open_url / browser_open.
+        query:
+          type: string
+          description: Used by web_search / browser_search.
+        engine:
+          type: string
+          enum: [google, bing, duckduckgo, ddg, youtube]
+          description: Used by web_search / browser_search. Defaults to google.
+        command:
+          type: string
+          description: Used by launch_app.
+        args:
+          type: array
+          items:
+            type: string
+          description: Used by launch_app.
+        cwd:
+          type: string
+          description: Used by launch_app.
+        page_id:
+          type: string
+          description: Used by browser_select_page.
+        text:
+          type: string
+          description: Used by browser_click_text.
+        selector:
+          type: string
+          description: CSS selector used by browser_click_selector / browser_fill.
+        value:
+          type: string
+          description: Used by browser_fill.
 
     LaunchCliInstanceRequest:
       type: object

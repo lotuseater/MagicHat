@@ -145,8 +145,32 @@ export class HostControlService {
       throw error;
     }
 
+    const normalizedTitle = title?.trim() || "";
+
+    // Reject outright when an existing running instance already has this exact
+    // initial prompt — prevents accidental duplicate sessions from a double-tap,
+    // retried relay request, or a second device issuing the same launch.
+    // Restore flows intentionally bypass this check: restoring the same task is the point.
+    if (normalizedTitle && !restoreRef && !restoreStatePath) {
+      const existing = await this.beaconStore.listInternalInstances();
+      const clash = existing.find((entry) => {
+        const taskField =
+          entry?.current_task_state?.task ??
+          entry?.snapshot?.task_state?.task ??
+          "";
+        return typeof taskField === "string" && taskField.trim() === normalizedTitle;
+      });
+      if (clash) {
+        const error = new Error("duplicate_initial_prompt");
+        error.code = "duplicate_initial_prompt";
+        error.existing_instance_id = clash.instance_id || null;
+        error.existing_pid = clash.pid || null;
+        throw error;
+      }
+    }
+
     const launchFingerprint = JSON.stringify({
-      title: title?.trim() || "",
+      title: normalizedTitle,
       restore_state_path: resolvedRestorePath || "",
       restore_ref: restoreRef?.trim() || "",
       team_mode: teamMode?.trim() || "",

@@ -17,8 +17,12 @@ import okhttp3.sse.EventSources
 class SseEventStreamClient(
     private val apiFactory: MagicHatApiFactory,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    // Base reconnect delay (ms). The actual delay is min(base * 2^attempts, maxReconnectDelayMs)
+    // with random jitter in [0, base]. Keeps a dead relay from becoming a tight retry loop.
     private val reconnectDelayMs: Long = 1_000,
+    private val maxReconnectDelayMs: Long = 30_000,
 ) {
+    private var reconnectAttempts: Int = 0
     private val adapter: JsonAdapter<InstanceEvent> = MoshiFactory.instance.adapter(InstanceEvent::class.java)
 
     private data class StreamConfig(
@@ -85,6 +89,7 @@ class SseEventStreamClient(
         eventSource?.cancel()
         eventSource = null
         active = null
+        reconnectAttempts = 0
     }
 
     private fun connect() {
@@ -102,6 +107,7 @@ class SseEventStreamClient(
             request,
             object : EventSourceListener() {
                 override fun onOpen(eventSource: EventSource, response: Response) {
+                    reconnectAttempts = 0
                     onState?.invoke("connected")
                 }
 
@@ -132,8 +138,18 @@ class SseEventStreamClient(
             return
         }
         reconnectJob?.cancel()
+        val attempt = reconnectAttempts.coerceAtMost(10)
+        reconnectAttempts = (reconnectAttempts + 1).coerceAtMost(10)
+        val exponent = 1L shl attempt // 1, 2, 4, 8, ..., capped
+        val capped = (reconnectDelayMs * exponent).coerceAtMost(maxReconnectDelayMs)
+        val jitter = if (reconnectDelayMs > 0) {
+            (Math.random() * reconnectDelayMs).toLong()
+        } else {
+            0L
+        }
+        val delayMs = capped + jitter
         reconnectJob = scope.launch {
-            delay(reconnectDelayMs)
+            delay(delayMs)
             connect()
         }
     }

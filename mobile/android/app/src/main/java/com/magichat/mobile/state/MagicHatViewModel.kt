@@ -752,6 +752,14 @@ class MagicHatViewModel(
                 promptInput = if (selectionStillExists) current.promptInput else "",
                 followUpInput = if (selectionStillExists) current.followUpInput else "",
                 restoreSessionInput = if (selectionStillExists) current.restoreSessionInput else "",
+                // If the user was viewing the Session Detail screen and its instance
+                // disappeared, bounce them back to Sessions instead of leaving them
+                // staring at a placeholder with a disabled tab.
+                screen = if (!selectionStillExists && current.screen == MagicHatScreen.INSTANCE_DETAIL) {
+                    MagicHatScreen.INSTANCES
+                } else {
+                    current.screen
+                },
             )
         }
     }

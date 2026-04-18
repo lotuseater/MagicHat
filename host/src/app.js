@@ -78,6 +78,18 @@ function statusForError(error) {
     case "browser_click_target_not_found":
     case "browser_fill_target_not_found":
       return 404;
+    case "unknown_cli_preset":
+    case "too_many_extra_args":
+    case "extra_arg_too_long":
+    case "empty_prompt":
+      return 400;
+    case "cli_instance_not_found":
+      return 404;
+    case "cli_instance_not_running":
+    case "stdin_unavailable":
+    case "stdin_write_failed":
+    case "duplicate_initial_prompt":
+      return 409;
     default:
       return 500;
   }

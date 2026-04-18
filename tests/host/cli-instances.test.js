@@ -159,6 +159,67 @@ describe("CliInstancesManager", () => {
     expect(Object.keys(CLI_PRESETS).sort()).toEqual(["claude", "codex", "gemini"]);
   });
 
+  it("rejects too many extra_args to prevent argv-flooding DoS", () => {
+    const tooMany = Array.from({ length: 100 }, (_, i) => `--flag-${i}`);
+    expect(() => manager.launchInstance({ preset: "claude", extraArgs: tooMany })).toThrowError(
+      expect.objectContaining({ code: "too_many_extra_args" }),
+    );
+  });
+
+  it("rejects oversized single extra_arg", () => {
+    const huge = "x".repeat(3000);
+    expect(() => manager.launchInstance({ preset: "claude", extraArgs: [huge] })).toThrowError(
+      expect.objectContaining({ code: "extra_arg_too_long" }),
+    );
+  });
+
+  it("surfaces stdin write failures as typed errors, not silent drops", () => {
+    const summary = manager.launchInstance({ preset: "codex" });
+    child.stdin.write = vi.fn(() => {
+      throw new Error("EPIPE");
+    });
+    expect(() => manager.sendPrompt(summary.instance_id, "hello")).toThrowError(
+      expect.objectContaining({ code: "stdin_write_failed" }),
+    );
+  });
+
+  it("blocks a second CLI launch with the same preset + initial prompt", () => {
+    manager.launchInstance({ preset: "claude", initialPrompt: "explore repo" });
+    expect(() => manager.launchInstance({ preset: "claude", initialPrompt: "explore repo" })).toThrowError(
+      expect.objectContaining({ code: "duplicate_initial_prompt" }),
+    );
+    // Different prompt is fine; different preset is fine.
+    expect(() => manager.launchInstance({ preset: "claude", initialPrompt: "something else" }))
+      .not.toThrow();
+    expect(() => manager.launchInstance({ preset: "codex", initialPrompt: "explore repo" }))
+      .not.toThrow();
+  });
+
+  it("allows relaunching once the first CLI has exited", () => {
+    // Replace the default (shared-child) spawnImpl with one that mints a fresh
+    // child each time, so exiting the first doesn't also exit the second.
+    const children = [];
+    manager = new CliInstancesManager({
+      spawnImpl: vi.fn(() => {
+        const next = fakeChild();
+        children.push(next);
+        return next;
+      }),
+      ptySpawnImpl: null,
+      now: () => 1_000,
+      statePath,
+    });
+    const summary = manager.launchInstance({ preset: "claude", initialPrompt: "explore repo" });
+    expect(() => manager.launchInstance({ preset: "claude", initialPrompt: "explore repo" })).toThrowError(
+      expect.objectContaining({ code: "duplicate_initial_prompt" }),
+    );
+    // Simulate only the first process exiting.
+    children[0].emit("exit", 0, null);
+    const relaunched = manager.launchInstance({ preset: "claude", initialPrompt: "explore repo" });
+    expect(relaunched.instance_id).not.toBe(summary.instance_id);
+    expect(relaunched.status).toBe("running");
+  });
+
   it("restores persisted instances across manager restart", async () => {
     const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-cli-manager-"));
     const restoreStatePath = path.join(tempRoot, "cli_instances.json");

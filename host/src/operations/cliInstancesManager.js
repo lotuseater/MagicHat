@@ -9,6 +9,11 @@ import { readJsonFileSync, writeJsonFileSync } from "../state/jsonStateStore.js"
 
 const MAX_OUTPUT_CHARS = 200_000;
 const MAX_EVENTS_PER_INSTANCE = 2_000;
+// Hard caps on caller-provided extra args: prevents a paired device (authenticated but
+// potentially compromised) from spawning a process with a million arguments or a
+// megabyte command line, which can DOS the host.
+const MAX_EXTRA_ARGS = 32;
+const MAX_EXTRA_ARG_LENGTH = 2_000;
 const ANSI_ESCAPE_PATTERN =
   // CSI / OSC / other common terminal control sequences.
   /\u001B(?:\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/gu;
@@ -117,10 +122,43 @@ export class CliInstancesManager {
       error.code = "unknown_cli_preset";
       throw error;
     }
+    // Reject outright when a running CLI of the same preset already has this
+    // exact initial prompt — same spirit as the Team App duplicate-prompt guard.
+    const normalizedPrompt = typeof initialPrompt === "string" ? initialPrompt.trim() : "";
+    if (normalizedPrompt) {
+      for (const existing of this.instances.values()) {
+        if (existing.status !== "running" || existing.preset !== presetKey) continue;
+        const existingTask =
+          (existing.args?.[existing.args.length - 1] ?? "").toString().trim();
+        if (existingTask === normalizedPrompt) {
+          const error = new Error("duplicate_initial_prompt");
+          error.code = "duplicate_initial_prompt";
+          error.existing_instance_id = existing.instanceId;
+          throw error;
+        }
+      }
+    }
+
     const instanceId = `cli_${presetKey}_${this.now()}_${this.idSource()}`;
+    const sanitizedExtra = Array.isArray(extraArgs)
+      ? extraArgs.slice(0, MAX_EXTRA_ARGS).map((value) => {
+          const asString = String(value ?? "");
+          if (asString.length > MAX_EXTRA_ARG_LENGTH) {
+            const error = new Error("extra_arg_too_long");
+            error.code = "extra_arg_too_long";
+            throw error;
+          }
+          return asString;
+        })
+      : [];
+    if (Array.isArray(extraArgs) && extraArgs.length > MAX_EXTRA_ARGS) {
+      const error = new Error("too_many_extra_args");
+      error.code = "too_many_extra_args";
+      throw error;
+    }
     const args = [
       ...config.defaultArgs,
-      ...(Array.isArray(extraArgs) ? extraArgs.map(String) : []),
+      ...sanitizedExtra,
     ];
     const task = typeof initialPrompt === "string" ? initialPrompt.trim() : "";
     if (task && config.acceptsTaskArg) {
@@ -278,7 +316,14 @@ export class CliInstancesManager {
         error.code = "stdin_unavailable";
         throw error;
       }
-      writer.call(record.child, `${text}\r`);
+      try {
+        writer.call(record.child, `${text}\r`);
+      } catch (writeError) {
+        const error = new Error("stdin_write_failed");
+        error.code = "stdin_write_failed";
+        error.cause = writeError;
+        throw error;
+      }
       this._persistState();
       return { status: "sent" };
     }
@@ -288,7 +333,14 @@ export class CliInstancesManager {
       error.code = "stdin_unavailable";
       throw error;
     }
-    stdin.write(text.endsWith("\n") ? text : `${text}\n`);
+    try {
+      stdin.write(text.endsWith("\n") ? text : `${text}\n`);
+    } catch (writeError) {
+      const error = new Error("stdin_write_failed");
+      error.code = "stdin_write_failed";
+      error.cause = writeError;
+      throw error;
+    }
     this._persistState();
     return { status: "sent" };
   }
