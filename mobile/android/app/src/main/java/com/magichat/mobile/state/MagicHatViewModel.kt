@@ -112,6 +112,19 @@ class MagicHatViewModel(
                 }
             }
         }
+
+        // Periodic presence heartbeat: while an active host is paired, re-check
+        // reachability every 30 s so the online/offline chip doesn't lie
+        // between the user's manual refreshes. Silent — any network error
+        // just flips the chip, matching user expectation.
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                if (_uiState.value.activeHostId != null) {
+                    launchBackgroundRefresh { repository.refreshActiveHost() }
+                }
+            }
+        }
     }
 
     fun updateBaseUrl(value: String) {
