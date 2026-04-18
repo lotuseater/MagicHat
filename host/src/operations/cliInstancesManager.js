@@ -62,6 +62,7 @@ export class CliInstancesManager {
   constructor(options = {}) {
     this.presets = options.presets || CLI_PRESETS;
     this.spawnImpl = options.spawnImpl || spawn;
+    this.mirrorSpawnImpl = options.mirrorSpawnImpl || spawn;
     this.ptySpawnImpl =
       options.ptySpawnImpl === undefined ? pty.spawn.bind(pty) : options.ptySpawnImpl;
     this.now = options.now || (() => Date.now());
@@ -71,6 +72,10 @@ export class CliInstancesManager {
     this.statePath =
       options.statePath ||
       path.join(process.cwd(), ".magichat", "cli_instances_state.json");
+    this.mirrorWindowsEnabled =
+      options.mirrorWindowsEnabled ??
+      (this.platform === "win32" &&
+        String(this.env.MAGICHAT_VISIBLE_CLI_WINDOWS ?? "1").toLowerCase() !== "0");
     this.processProbe = options.processProbe || ((pid) => this._defaultProcessProbe(pid));
     this.instances = new Map();
     this.emitter = new EventEmitter();
@@ -158,13 +163,17 @@ export class CliInstancesManager {
       events: [],
       child,
       transport: launch.transport,
+      mirrorLogPath: this._mirrorLogPath(instanceId),
+      mirrorChild: null,
     };
+    this._initializeMirror(record);
 
     const appendChunk = (source) => (chunk) => {
       const text = sanitizeTerminalOutput(chunk.toString("utf8"));
       if (!text) {
         return;
       }
+      this._appendMirrorOutput(record, text);
       record.output = truncate(record.output + text);
       const event = {
         ts: this.now(),
@@ -189,6 +198,7 @@ export class CliInstancesManager {
     const onError = (err) => {
       record.status = "error";
       record.endedAt = this.now();
+      this._appendMirrorOutput(record, `\n[error] ${err?.message || "spawn_error"}\n`);
       const event = {
         ts: this.now(),
         source: "error",
@@ -208,6 +218,10 @@ export class CliInstancesManager {
       record.exitCode = code;
       record.exitSignal = signal;
       record.endedAt = this.now();
+      this._appendMirrorOutput(
+        record,
+        `\n[MagicHat] process exited (${code ?? "?"}${signal ? `, signal=${signal}` : ""})\n`,
+      );
       const event = {
         ts: this.now(),
         source: "exit",
@@ -535,5 +549,84 @@ export class CliInstancesManager {
     }
     const escaped = String(value).replace(/"/g, '""');
     return /[\s"]/u.test(escaped) ? `"${escaped}"` : escaped;
+  }
+
+  _initializeMirror(record) {
+    if (!this.mirrorWindowsEnabled || !record.mirrorLogPath) {
+      return;
+    }
+    try {
+      fs.mkdirSync(path.dirname(record.mirrorLogPath), { recursive: true });
+      fs.writeFileSync(
+        record.mirrorLogPath,
+        `[MagicHat] ${record.presetLabel} mirror\n[MagicHat] command: ${record.command} ${record.args.join(" ")}\n\n`,
+        "utf8",
+      );
+      record.mirrorChild = this._spawnMirrorWindow(record);
+    } catch {
+      record.mirrorChild = null;
+    }
+  }
+
+  _appendMirrorOutput(record, text) {
+    if (!record?.mirrorLogPath) {
+      return;
+    }
+    try {
+      fs.appendFileSync(record.mirrorLogPath, text, "utf8");
+    } catch {
+      // Mirror logging is best-effort only.
+    }
+  }
+
+  _mirrorLogPath(instanceId) {
+    if (!this.mirrorWindowsEnabled) {
+      return null;
+    }
+    return path.join(path.dirname(this.statePath), "cli_mirrors", `${instanceId}.log`);
+  }
+
+  _spawnMirrorWindow(record) {
+    if (this.platform !== "win32") {
+      return null;
+    }
+    const powershell =
+      this._firstExistingPath([
+        path.join(
+          this.env.SystemRoot || "C:\\Windows",
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "powershell.exe",
+        ),
+        "powershell.exe",
+      ]) || "powershell.exe";
+    const title = `MagicHat CLI - ${record.title}`;
+    const escapedTitle = this._quoteForPowerShellSingleQuotedString(title);
+    const escapedPath = this._quoteForPowerShellSingleQuotedString(record.mirrorLogPath);
+    const script = [
+      `$Host.UI.RawUI.WindowTitle = '${escapedTitle}'`,
+      `$path = '${escapedPath}'`,
+      "if (!(Test-Path -LiteralPath $path)) { New-Item -ItemType File -Path $path -Force | Out-Null }",
+      "Get-Content -LiteralPath $path -Wait -Encoding UTF8",
+    ].join("; ");
+    const child = this.mirrorSpawnImpl(powershell, [
+      "-NoLogo",
+      "-NoExit",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      script,
+    ], {
+      detached: true,
+      windowsHide: false,
+      stdio: "ignore",
+    });
+    child.unref?.();
+    return child;
+  }
+
+  _quoteForPowerShellSingleQuotedString(value) {
+    return String(value).replace(/'/g, "''");
   }
 }

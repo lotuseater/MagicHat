@@ -282,4 +282,53 @@ describe("CliInstancesManager", () => {
 
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
+
+  it("opens a visible mirror window for Windows PTY launches", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-cli-manager-"));
+    const statePath = path.join(tempRoot, "cli_instances.json");
+    const ptyChild = {
+      pid: 5151,
+      write: vi.fn(),
+      kill: vi.fn(),
+      onData: vi.fn(),
+      onExit: vi.fn(),
+    };
+    const ptySpawnImpl = vi.fn(() => ptyChild);
+    const mirrorChild = { unref: vi.fn() };
+    const mirrorSpawnImpl = vi.fn(() => mirrorChild);
+    const manager = new CliInstancesManager({
+      spawnImpl: vi.fn(),
+      mirrorSpawnImpl,
+      ptySpawnImpl,
+      now: () => 1_000,
+      statePath,
+      platform: "win32",
+      env: {
+        PATH: "C:\\Windows\\System32",
+        USERPROFILE: path.join(tempRoot, "home"),
+        APPDATA: path.join(tempRoot, "home", "AppData", "Roaming"),
+        SystemRoot: "C:\\Windows",
+        MAGICHAT_VISIBLE_CLI_WINDOWS: "1",
+      },
+    });
+
+    manager.launchInstance({ preset: "codex" });
+
+    expect(ptySpawnImpl).toHaveBeenCalledOnce();
+    expect(mirrorSpawnImpl).toHaveBeenCalledOnce();
+    const [command, args, options] = mirrorSpawnImpl.mock.calls[0];
+    expect(command).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    expect(args).toContain("-NoExit");
+    expect(args[args.length - 1]).toContain("MagicHat CLI - Codex CLI");
+    expect(options).toEqual(
+      expect.objectContaining({
+        detached: true,
+        windowsHide: false,
+        stdio: "ignore",
+      }),
+    );
+    expect(mirrorChild.unref).toHaveBeenCalledOnce();
+
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
 });

@@ -283,9 +283,13 @@ class MagicHatViewModel(
                 initialPrompt = prompt,
             )
             _uiState.update {
+                val updatedInstances = listOf(launched) + it.cliInstances.filterNot { existing ->
+                    existing.instanceId == launched.instanceId
+                }
                 it.copy(
                     cliLaunchPromptInput = "",
                     cliSelectedInstanceId = launched.instanceId,
+                    cliInstances = updatedInstances,
                 )
             }
             refreshCliInstances(loadPresetsIfMissing = false)
@@ -338,17 +342,23 @@ class MagicHatViewModel(
                 if (isHttpNotFound(throwable)) emptyList() else throw throwable
             }
         _uiState.update { state ->
-            val selection = state.cliSelectedInstanceId
-            val selectedStillExists = selection != null && instances.any { it.instanceId == selection }
+            val nextSelection = preferredCliSelection(
+                currentSelection = state.cliSelectedInstanceId,
+                instances = instances,
+            )
             val defaultPreset = presets.firstOrNull { it.preset == state.cliSelectedPreset }?.preset
                 ?: presets.firstOrNull()?.preset
                 ?: state.cliSelectedPreset
             state.copy(
                 cliPresets = presets,
                 cliInstances = instances,
-                cliSelectedInstanceId = if (selectedStillExists) selection else null,
+                cliSelectedInstanceId = nextSelection,
                 cliSelectedPreset = defaultPreset,
             )
+        }
+        val selectedInstanceId = _uiState.value.cliSelectedInstanceId
+        if (selectedInstanceId != null && _uiState.value.cliStreamStatus == "idle") {
+            subscribeToCliInstance(selectedInstanceId)
         }
     }
 
@@ -709,6 +719,16 @@ class MagicHatViewModel(
     }
 
     companion object {
+        private fun preferredCliSelection(
+            currentSelection: String?,
+            instances: List<CliInstanceWire>,
+        ): String? {
+            if (currentSelection != null && instances.any { it.instanceId == currentSelection }) {
+                return currentSelection
+            }
+            return instances.firstOrNull()?.instanceId
+        }
+
         private fun defaultCliPresets(): List<CliPreset> {
             return listOf(
                 CliPreset(

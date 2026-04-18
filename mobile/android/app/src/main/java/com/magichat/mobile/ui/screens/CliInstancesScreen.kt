@@ -66,7 +66,6 @@ fun CliInstancesScreen(
     val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
     val selected = state.cliSelectedInstanceId
         ?.let { id -> state.cliInstances.firstOrNull { it.instanceId == id } }
-    val clipboard = LocalClipboardManager.current
     var pendingClose by remember { mutableStateOf<CliInstanceWire?>(null) }
 
     // Auto-refresh the CLI instance list every 5 s while this screen is visible
@@ -121,6 +120,19 @@ fun CliInstancesScreen(
             )
         }
 
+        selected?.let { target ->
+            item {
+                CliSelectedInstanceCard(
+                    target = target,
+                    followUpInput = state.cliFollowUpInput,
+                    canRunCommands = canRunCommands,
+                    isLoading = state.isLoading,
+                    onFollowUpChanged = onFollowUpChanged,
+                    onSendFollowUp = onSendFollowUp,
+                )
+            }
+        }
+
         if (!hasActiveHost) {
             item {
                 Text(
@@ -141,68 +153,15 @@ fun CliInstancesScreen(
             }
         }
 
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Outlined.Terminal, contentDescription = null)
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Launch new CLI", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "Full permissions + plan mode are enabled by default for each preset.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    if (state.cliPresets.isEmpty()) {
-                        Text(
-                            if (state.isLoading) "Fetching presets…" else "No presets loaded yet. Tap Refresh to retry.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(state.cliPresets, key = { it.preset }) { preset ->
-                                val isSelected = state.cliSelectedPreset == preset.preset
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = { if (!isSelected) onPresetChanged(preset.preset) },
-                                    enabled = canRunCommands && state.isLoading.not(),
-                                    label = { Text(preset.label) },
-                                )
-                            }
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = state.cliLaunchPromptInput,
-                        onValueChange = onLaunchPromptChanged,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Initial prompt (optional)") },
-                        placeholder = { Text("Task for the CLI to start with") },
-                        minLines = 2,
-                        enabled = canRunCommands && state.isLoading.not(),
-                    )
-
-                    Button(
-                        onClick = onLaunch,
-                        enabled = canRunCommands && state.isLoading.not() && state.cliPresets.isNotEmpty(),
-                    ) {
-                        Text("Launch CLI")
-                    }
-                    if (!canRunCommands) {
-                        Text(
-                            "Host offline — can't launch a CLI right now.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+        if (selected == null) {
+            item {
+                CliLauncherCard(
+                    state = state,
+                    canRunCommands = canRunCommands,
+                    onPresetChanged = onPresetChanged,
+                    onLaunchPromptChanged = onLaunchPromptChanged,
+                    onLaunch = onLaunch,
+                )
             }
         }
 
@@ -230,69 +189,167 @@ fun CliInstancesScreen(
             }
         }
 
-        selected?.let { target ->
+        if (selected != null) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "Output — ${target.presetLabel}",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            IconButton(
-                                onClick = { clipboard.setText(AnnotatedString(target.output)) },
-                                enabled = target.output.isNotBlank(),
-                            ) {
-                                Icon(
-                                    Icons.Outlined.ContentCopy,
-                                    contentDescription = "Copy output",
-                                )
-                            }
-                        }
-                        val body = target.output.ifBlank { "(no output yet)" }
-                        Text(
-                            body,
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    MaterialTheme.shapes.medium,
-                                )
-                                .padding(12.dp)
-                                .heightIn(min = 160.dp, max = 360.dp)
-                                .verticalScroll(rememberScrollState()),
-                        )
+                CliLauncherCard(
+                    state = state,
+                    canRunCommands = canRunCommands,
+                    onPresetChanged = onPresetChanged,
+                    onLaunchPromptChanged = onLaunchPromptChanged,
+                    onLaunch = onLaunch,
+                )
+            }
+        }
 
-                        OutlinedTextField(
-                            value = state.cliFollowUpInput,
-                            onValueChange = onFollowUpChanged,
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Send prompt") },
-                            minLines = 2,
-                            enabled = canRunCommands && state.isLoading.not() && target.status == "running",
+    }
+}
+
+@Composable
+private fun CliLauncherCard(
+    state: MagicHatUiState,
+    canRunCommands: Boolean,
+    onPresetChanged: (String) -> Unit,
+    onLaunchPromptChanged: (String) -> Unit,
+    onLaunch: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.Terminal, contentDescription = null)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Launch new CLI", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Full permissions + plan mode are enabled by default for each preset.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (state.cliPresets.isEmpty()) {
+                Text(
+                    if (state.isLoading) "Fetching presets…" else "No presets loaded yet. Tap Refresh to retry.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(state.cliPresets, key = { it.preset }) { preset ->
+                        val isSelected = state.cliSelectedPreset == preset.preset
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { if (!isSelected) onPresetChanged(preset.preset) },
+                            enabled = canRunCommands && state.isLoading.not(),
+                            label = { Text(preset.label) },
                         )
-                        Button(
-                            onClick = onSendFollowUp,
-                            enabled = canRunCommands && state.isLoading.not()
-                                && state.cliFollowUpInput.isNotBlank() && target.status == "running",
-                        ) {
-                            Text("Send")
-                        }
-                        if (target.status != "running") {
-                            Text(
-                                "Process is ${target.status}; prompts disabled.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
                     }
                 }
+            }
+
+            OutlinedTextField(
+                value = state.cliLaunchPromptInput,
+                onValueChange = onLaunchPromptChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Initial prompt (optional)") },
+                placeholder = { Text("Task for the CLI to start with") },
+                minLines = 2,
+                enabled = canRunCommands && state.isLoading.not(),
+            )
+
+            Button(
+                onClick = onLaunch,
+                enabled = canRunCommands && state.isLoading.not() && state.cliPresets.isNotEmpty(),
+            ) {
+                Text("Launch CLI")
+            }
+            if (!canRunCommands) {
+                Text(
+                    "Host offline — can't launch a CLI right now.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CliSelectedInstanceCard(
+    target: CliInstanceWire,
+    followUpInput: String,
+    canRunCommands: Boolean,
+    isLoading: Boolean,
+    onFollowUpChanged: (String) -> Unit,
+    onSendFollowUp: () -> Unit,
+) {
+    val clipboard = LocalClipboardManager.current
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "Active CLI",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "${target.presetLabel} · ${target.status}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    onClick = { clipboard.setText(AnnotatedString(target.output)) },
+                    enabled = target.output.isNotBlank(),
+                ) {
+                    Icon(
+                        Icons.Outlined.ContentCopy,
+                        contentDescription = "Copy output",
+                    )
+                }
+            }
+            val body = target.output.ifBlank { "(no output yet)" }
+            Text(
+                body,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        MaterialTheme.shapes.medium,
+                    )
+                    .padding(12.dp)
+                    .heightIn(min = 160.dp, max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            )
+
+            OutlinedTextField(
+                value = followUpInput,
+                onValueChange = onFollowUpChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Send prompt") },
+                minLines = 2,
+                enabled = canRunCommands && isLoading.not() && target.status == "running",
+            )
+            Button(
+                onClick = onSendFollowUp,
+                enabled = canRunCommands && isLoading.not()
+                    && followUpInput.isNotBlank() && target.status == "running",
+            ) {
+                Text("Send")
+            }
+            if (target.status != "running") {
+                Text(
+                    "Process is ${target.status}; prompts disabled.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

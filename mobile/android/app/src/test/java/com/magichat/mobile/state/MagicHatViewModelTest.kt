@@ -397,8 +397,52 @@ class MagicHatViewModelTest {
         assertThat(repository.listCliInstancesCalls).isEqualTo(1)
         assertThat(state.cliPresets.map { it.preset }).containsExactly("claude", "codex").inOrder()
         assertThat(state.cliInstances.map { it.instanceId }).containsExactly("cli-1")
-        assertThat(state.cliSelectedInstanceId).isNull()
+        assertThat(state.cliSelectedInstanceId).isEqualTo("cli-1")
         assertThat(state.cliSelectedPreset).isEqualTo("claude")
+    }
+
+    @Test
+    fun launchCliKeepsLaunchedInstanceSelectedAcrossRefresh() = runTest(dispatcher) {
+        val launched = CliInstanceWire(
+            instanceId = "cli-new",
+            preset = "codex",
+            presetLabel = "Codex CLI",
+            title = "Codex CLI",
+            command = "codex",
+            status = "running",
+            output = "booted",
+        )
+        val repository = FakeMagicHatRepository(
+            cliPresetsResult = listOf(
+                CliPreset(preset = "claude", label = "Claude Code", command = "claude"),
+                CliPreset(preset = "codex", label = "Codex CLI", command = "codex"),
+            ),
+            cliInstancesResult = listOf(launched),
+        )
+        repository.launchCliInstanceResult = launched
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES)
+        advanceUntilIdle()
+        viewModel.updateCliPreset("codex")
+        viewModel.launchCliInstance()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(repository.launchCliCalls).containsExactly(
+            CliLaunchInvocation(
+                preset = "codex",
+                title = null,
+                initialPrompt = "",
+            ),
+        )
+        assertThat(state.cliSelectedInstanceId).isEqualTo("cli-new")
+        assertThat(state.cliInstances.first().instanceId).isEqualTo("cli-new")
     }
 
     @Test
@@ -484,7 +528,16 @@ private class FakeMagicHatRepository(
     var listCliInstancesCalls = 0
     var refreshActiveHostCalls = 0
     var stopInstanceEventsCalls = 0
+    val launchCliCalls = mutableListOf<CliLaunchInvocation>()
     var launchInstanceResult: InstanceDetail = InstanceDetail(instance = instance("launched"))
+    var launchCliInstanceResult: com.magichat.mobile.model.CliInstanceWire = CliInstanceWire(
+        instanceId = "cli-launched",
+        preset = "claude",
+        presetLabel = "Claude Code",
+        title = "Claude Code",
+        command = "claude",
+        status = "running",
+    )
     var detailFailure: Throwable? = null
     private var observedOnEvent: ((InstanceEvent) -> Unit)? = null
     private var observedOnState: ((String) -> Unit)? = null
@@ -608,7 +661,8 @@ private class FakeMagicHatRepository(
         title: String?,
         initialPrompt: String?,
     ): com.magichat.mobile.model.CliInstanceWire {
-        throw UnsupportedOperationException("test stub")
+        launchCliCalls += CliLaunchInvocation(preset, title, initialPrompt ?: "")
+        return launchCliInstanceResult
     }
 
     override suspend fun closeCliInstance(instanceId: String) = Unit
@@ -665,4 +719,10 @@ private data class LaunchInvocation(
 private data class RemotePairInvocation(
     val pairUri: String,
     val deviceName: String,
+)
+
+private data class CliLaunchInvocation(
+    val preset: String,
+    val title: String?,
+    val initialPrompt: String,
 )
