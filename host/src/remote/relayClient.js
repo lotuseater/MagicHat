@@ -25,12 +25,14 @@ export class RelayClient {
     this.onApprovalRequired = options.onApprovalRequired || (() => {});
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 20_000;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 2_000;
+    this.maxReconnectDelayMs = options.maxReconnectDelayMs ?? 60_000;
 
     this.ws = null;
     this.heartbeatTimer = null;
     this.closedByClient = false;
     this.sessionId = null;
     this.pendingAdmin = new Map();
+    this.reconnectAttempts = 0;
   }
 
   statusSnapshot() {
@@ -61,10 +63,22 @@ export class RelayClient {
     clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
     this.sessionId = null;
+    this._rejectPendingAdmin("relay_client_closed");
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
+  }
+
+  _rejectPendingAdmin(reason) {
+    for (const [, entry] of this.pendingAdmin) {
+      try {
+        entry.reject(Object.assign(new Error(reason), { code: reason }));
+      } catch {
+        // ignore — rejecting a settled promise is fine.
+      }
+    }
+    this.pendingAdmin.clear();
   }
 
   async _connectLoop() {
@@ -74,7 +88,16 @@ export class RelayClient {
         return;
       } catch (error) {
         this.onStatus({ type: "remote_relay_error", detail: error?.message || String(error) });
-        await sleep(this.reconnectDelayMs);
+        // Exponential backoff with jitter: base × 2^attempts, capped at
+        // maxReconnectDelayMs, plus [0, base) jitter. Avoids hammering a
+        // dead relay at 2 s intervals through a long outage.
+        const exp = Math.min(
+          this.reconnectDelayMs * 2 ** Math.min(this.reconnectAttempts, 10),
+          this.maxReconnectDelayMs,
+        );
+        const jitter = this.reconnectDelayMs > 0 ? Math.random() * this.reconnectDelayMs : 0;
+        this.reconnectAttempts = Math.min(this.reconnectAttempts + 1, 10);
+        await sleep(exp + jitter);
       }
     }
   }
@@ -119,6 +142,9 @@ export class RelayClient {
           if (payload.type === "host_attest") {
             authenticated = true;
             this.sessionId = payload.session_id;
+            // Reset backoff: a fresh successful connection invalidates the
+            // escalated delay from earlier failures.
+            this.reconnectAttempts = 0;
             this._beginHeartbeat();
             this.onStatus({ type: "remote_connected", session_id: this.sessionId, relay_url: this.relayUrl });
             resolve();
@@ -184,8 +210,11 @@ export class RelayClient {
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = null;
         this.sessionId = null;
+        this._rejectPendingAdmin("host_offline");
         this.onStatus({ type: "remote_disconnected", relay_url: this.relayUrl });
         if (!this.closedByClient && authenticated) {
+          // Recursive reconnect with exponential backoff. _connectLoop will
+          // keep escalating delays if reconnects keep failing.
           await this._connectLoop();
         } else if (!authenticated) {
           reject(new Error("relay_auth_failed"));
