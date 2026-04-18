@@ -304,17 +304,18 @@ private fun TeamTab(
             ) {
                 detail.terminalsByAgent.keys.sorted().forEach { agentId ->
                     val selected = state.selectedTerminalAgent == agentId
+                    val agentLabel = displayAgentName(agentId)
                     OutlinedButton(
                         onClick = { onSelectTerminalAgent(agentId) },
                         enabled = !selected && state.isLoading.not(),
                     ) {
-                        Text(if (selected) "$agentId selected" else agentId)
+                        Text(if (selected) "$agentLabel selected" else agentLabel)
                     }
                 }
             }
             state.selectedTerminalAgent?.let { agentId ->
                 detail.terminalsByAgent[agentId]?.let { terminal ->
-                    Text("Terminal: $agentId", style = MaterialTheme.typography.titleSmall)
+                    Text("Terminal: ${displayAgentName(agentId)}", style = MaterialTheme.typography.titleSmall)
                     Text(
                         terminal,
                         fontFamily = FontFamily.Monospace,
@@ -363,7 +364,7 @@ private fun ChatEntryCard(entry: Map<String, Any?>) {
             val speaker = listOf("sender", "role", "agent_id")
                 .firstNotNullOfOrNull { key -> entry[key]?.toString()?.takeIf { it.isNotBlank() } }
                 ?: "message"
-            Text(speaker, style = MaterialTheme.typography.titleSmall)
+            Text(displayAgentName(speaker), style = MaterialTheme.typography.titleSmall)
             Text(
                 listOf("text", "message", "content")
                     .firstNotNullOfOrNull { key -> entry[key]?.toString()?.takeIf { it.isNotBlank() } }
@@ -391,4 +392,12 @@ private fun formatEventLine(event: InstanceEvent): String {
         event.message,
         event.outputChunk,
     ).joinToString(" | ")
+}
+
+private fun displayAgentName(value: String): String {
+    return when (value.lowercase()) {
+        "erasmus" -> "Erasmus"
+        "fenrus" -> "Fenrus"
+        else -> value
+    }
 }

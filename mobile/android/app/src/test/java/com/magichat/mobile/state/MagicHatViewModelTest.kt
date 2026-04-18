@@ -234,6 +234,35 @@ class MagicHatViewModelTest {
     }
 
     @Test
+    fun pairRemoteFromUriPairsImmediatelyAndNavigates() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            instancesResult = listOf(instance("remote-1")),
+            restoreRefsResult = listOf(KnownRestoreRef(restoreRef = "restore-remote-1", title = "Remote Restore")),
+        )
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac", mode = "remote_relay")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.pairRemoteFromUri("  magichat://pair?relay=https%3A%2F%2Frelay.example.test&claim_id=claim123  ")
+        advanceUntilIdle()
+
+        assertThat(repository.pairRemoteCalls).containsExactly(
+            RemotePairInvocation(
+                pairUri = "magichat://pair?relay=https%3A%2F%2Frelay.example.test&claim_id=claim123",
+                deviceName = "MagicHat Android",
+            ),
+        )
+        val state = viewModel.uiState.value
+        assertThat(state.screen).isEqualTo(MagicHatScreen.INSTANCES)
+        assertThat(state.remotePairUriInput).isEmpty()
+        assertThat(state.instances.map { it.instanceId }).containsExactly("remote-1")
+        assertThat(state.knownRestoreRefs.map { it.restoreRef }).containsExactly("restore-remote-1")
+    }
+
+    @Test
     fun launchInstancePassesStartupProfileSelectionsAndResetsControls() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository(
             instancesResult = listOf(instance("launched-1")),
@@ -369,6 +398,7 @@ private class FakeMagicHatRepository(
     var restoreRefsResult: List<KnownRestoreRef> = emptyList(),
 ) : MagicHatRepositoryContract {
     val launchInstanceCalls = mutableListOf<LaunchInvocation>()
+    val pairRemoteCalls = mutableListOf<RemotePairInvocation>()
     val pairingStateFlow = MutableStateFlow(PairingSnapshot(emptyList(), null))
     val activeHostSelections = mutableListOf<String>()
     val removedHosts = mutableListOf<String>()
@@ -392,7 +422,18 @@ private class FakeMagicHatRepository(
     }
 
     override suspend fun pairRemote(pairUri: String, deviceName: String): PairedHostRecord {
-        error("Not used in this test")
+        pairRemoteCalls += RemotePairInvocation(pairUri, deviceName)
+        return PairedHostRecord(
+            hostId = "remote-paired",
+            displayName = "Remote Host",
+            baseUrl = "http://127.0.0.1:18765/",
+            sessionToken = "session-token",
+            pairedAt = "2026-04-13T10:00:00Z",
+            mode = "remote_relay",
+            relayUrl = "https://relay.example.test",
+            deviceId = "device-1",
+            lastKnownHostPresence = "online",
+        )
     }
 
     override suspend fun activeHost(): PairedHostRecord? {
@@ -507,4 +548,9 @@ private data class LaunchInvocation(
     val teamMode: TeamModeOption,
     val launcherPreset: LauncherPresetOption,
     val fenrusLauncher: FenrusLauncherOption,
+)
+
+private data class RemotePairInvocation(
+    val pairUri: String,
+    val deviceName: String,
 )

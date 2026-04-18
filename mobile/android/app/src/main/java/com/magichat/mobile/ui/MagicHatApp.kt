@@ -109,6 +109,7 @@ fun MagicHatApp(
                     state = uiState,
                     onBaseUrlChanged = viewModel::updateBaseUrl,
                     onRemotePairUriChanged = viewModel::updateRemotePairUri,
+                    onPairRemoteFromUri = viewModel::pairRemoteFromUri,
                     onPairCodeChanged = viewModel::updatePairCode,
                     onToggleLanPairing = viewModel::toggleLanPairingExpanded,
                     onDiscover = viewModel::discoverHosts,

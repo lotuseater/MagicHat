@@ -102,6 +102,17 @@ class MagicHatViewModel(
         }
     }
 
+    fun pairRemoteFromUri(value: String) {
+        val normalized = value.trim()
+        if (normalized.isBlank()) {
+            showError("Remote pair URI is required")
+            return
+        }
+        launchAction {
+            pairRemoteWithUri(normalized)
+        }
+    }
+
     fun updatePairCode(value: String) {
         _uiState.update { it.copy(pairCodeInput = value) }
     }
@@ -203,22 +214,7 @@ class MagicHatViewModel(
 
     fun pairRemote() {
         launchAction {
-            val state = _uiState.value
-            val pairUri = state.remotePairUriInput.trim()
-            if (pairUri.isBlank()) {
-                error("Remote pair URI is required")
-            }
-            repository.pairRemote(
-                pairUri = pairUri,
-                deviceName = "MagicHat Android",
-            )
-            refreshInstances()
-            _uiState.update {
-                it.copy(
-                    screen = MagicHatScreen.INSTANCES,
-                    remotePairUriInput = "",
-                )
-            }
+            pairRemoteWithUri(_uiState.value.remotePairUriInput)
         }
     }
 
@@ -433,6 +429,25 @@ class MagicHatViewModel(
                 selectedTerminalAgent = preferredTerminalAgent(detail, state.selectedTerminalAgent),
                 instances = instances,
                 knownRestoreRefs = restoreRefs,
+            )
+        }
+    }
+
+    private suspend fun pairRemoteWithUri(value: String) {
+        val pairUri = value.trim()
+        if (pairUri.isBlank()) {
+            error("Remote pair URI is required")
+        }
+        _uiState.update { it.copy(remotePairUriInput = pairUri) }
+        repository.pairRemote(
+            pairUri = pairUri,
+            deviceName = "MagicHat Android",
+        )
+        refreshInstances()
+        _uiState.update {
+            it.copy(
+                screen = MagicHatScreen.INSTANCES,
+                remotePairUriInput = "",
             )
         }
     }

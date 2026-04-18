@@ -40,6 +40,7 @@ fun PairingScreen(
     state: MagicHatUiState,
     onBaseUrlChanged: (String) -> Unit,
     onRemotePairUriChanged: (String) -> Unit,
+    onPairRemoteFromUri: (String) -> Unit,
     onPairCodeChanged: (String) -> Unit,
     onToggleLanPairing: () -> Unit,
     onDiscover: () -> Unit,
@@ -112,7 +113,7 @@ fun PairingScreen(
                                     .addOnSuccessListener { barcode ->
                                         val raw = barcode.rawValue.orEmpty().trim()
                                         if (raw.startsWith("magichat://pair", ignoreCase = true)) {
-                                            onRemotePairUriChanged(raw)
+                                            onPairRemoteFromUri(raw)
                                         } else {
                                             onError("Scanned QR does not contain a MagicHat pair URI.")
                                         }
