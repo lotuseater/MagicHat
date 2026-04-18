@@ -271,6 +271,23 @@ class MagicHatViewModelTest {
     }
 
     @Test
+    fun launchInstanceRequiresInitialPrompt() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository()
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.launchInstance()
+        advanceUntilIdle()
+
+        assertThat(repository.launchInstanceCalls).isEmpty()
+        assertThat(viewModel.uiState.value.errorMessage).isEqualTo("Initial prompt is required to start a remote session")
+    }
+
+    @Test
     fun streamRefreshFailureDoesNotClearSelectedInstance() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository()
         repository.pairingStateFlow.value = PairingSnapshot(

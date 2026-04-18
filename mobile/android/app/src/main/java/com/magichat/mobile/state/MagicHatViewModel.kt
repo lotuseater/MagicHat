@@ -256,6 +256,9 @@ class MagicHatViewModel(
     fun launchInstance() {
         launchAction {
             val state = _uiState.value
+            if (state.launchTitleInput.isBlank()) {
+                error("Initial prompt is required to start a remote session")
+            }
             val detail = repository.launchInstance(
                 title = state.launchTitleInput,
                 teamMode = state.launchTeamMode,

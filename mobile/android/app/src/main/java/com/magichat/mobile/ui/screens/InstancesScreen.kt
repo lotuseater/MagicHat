@@ -142,6 +142,7 @@ private fun SessionComposerCard(
     onLaunchInstance: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
+        val hasInitialPrompt = state.launchTitleInput.isNotBlank()
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -196,7 +197,7 @@ private fun SessionComposerCard(
 
             Button(
                 onClick = onLaunchInstance,
-                enabled = canRunCommands && state.isLoading.not(),
+                enabled = canRunCommands && state.isLoading.not() && hasInitialPrompt,
             ) {
                 Text("Start Session")
             }
