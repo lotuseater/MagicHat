@@ -159,6 +159,24 @@ describe("CliInstancesManager", () => {
     expect(Object.keys(CLI_PRESETS).sort()).toEqual(["claude", "codex", "gemini"]);
   });
 
+  it("reports output_truncated + total_output_chars so the UI can label a lossy buffer", () => {
+    const summary = manager.launchInstance({ preset: "claude" });
+    const fatChunk = "a".repeat(250_000);
+    child.stdout.emit("data", Buffer.from(fatChunk));
+    const detail = manager.getInstance(summary.instance_id);
+    expect(detail.output_truncated).toBe(true);
+    expect(detail.total_output_chars).toBeGreaterThanOrEqual(250_000);
+    expect(detail.output).toContain("[truncated]");
+  });
+
+  it("leaves small outputs untouched and does not flag them as truncated", () => {
+    const summary = manager.launchInstance({ preset: "codex" });
+    child.stdout.emit("data", Buffer.from("hello"));
+    const detail = manager.getInstance(summary.instance_id);
+    expect(detail.output_truncated).toBe(false);
+    expect(detail.total_output_chars).toBe(5);
+  });
+
   it("rejects too many extra_args to prevent argv-flooding DoS", () => {
     const tooMany = Array.from({ length: 100 }, (_, i) => `--flag-${i}`);
     expect(() => manager.launchInstance({ preset: "claude", extraArgs: tooMany })).toThrowError(

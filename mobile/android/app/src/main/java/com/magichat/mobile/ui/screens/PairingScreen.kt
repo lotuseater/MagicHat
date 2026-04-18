@@ -218,7 +218,11 @@ fun PairingScreen(
                         IconButton(onClick = onToggleLanPairing) {
                             Icon(
                                 imageVector = if (state.lanPairingExpanded) Icons.Outlined.WifiTethering else Icons.Outlined.Computer,
-                                contentDescription = null,
+                                contentDescription = if (state.lanPairingExpanded) {
+                                    "Collapse LAN pairing"
+                                } else {
+                                    "Expand LAN pairing"
+                                },
                             )
                         }
                     }

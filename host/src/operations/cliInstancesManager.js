@@ -57,6 +57,18 @@ function truncate(text, max = MAX_OUTPUT_CHARS) {
   return `${head}\n...[truncated]...\n${tail}`;
 }
 
+function applyOutput(record, chunk) {
+  // Track the cumulative byte count before truncation so callers can show
+  // "N kB written, buffer truncated to …" in the UI instead of silently
+  // presenting a lossy view.
+  record.totalOutputChars = (record.totalOutputChars || 0) + chunk.length;
+  const combined = record.output + chunk;
+  record.output = truncate(combined);
+  record.outputTruncated = record.output !== combined ||
+    record.totalOutputChars > MAX_OUTPUT_CHARS;
+  return record.output;
+}
+
 function sanitizeTerminalOutput(text) {
   return String(text)
     .replace(ANSI_ESCAPE_PATTERN, "")
@@ -198,6 +210,8 @@ export class CliInstancesManager {
       exitSignal: null,
       status: "running",
       output: "",
+      totalOutputChars: 0,
+      outputTruncated: false,
       events: [],
       child,
       transport: launch.transport,
@@ -212,7 +226,7 @@ export class CliInstancesManager {
         return;
       }
       this._appendMirrorOutput(record, text);
-      record.output = truncate(record.output + text);
+      applyOutput(record, text);
       const event = {
         ts: this.now(),
         source, // "stdout" | "stderr"
@@ -419,6 +433,8 @@ export class CliInstancesManager {
       status: record.status,
       output: record.output,
       event_count: record.events.length,
+      output_truncated: !!record.outputTruncated,
+      total_output_chars: record.totalOutputChars ?? record.output.length,
     };
   }
 
@@ -445,6 +461,10 @@ export class CliInstancesManager {
         exitSignal: raw.exit_signal ?? null,
         status: stillRunning ? "running" : (raw.status || "exited"),
         output: typeof raw.output === "string" ? raw.output : "",
+        totalOutputChars: Number.isInteger(raw.total_output_chars)
+          ? raw.total_output_chars
+          : (typeof raw.output === "string" ? raw.output.length : 0),
+        outputTruncated: !!raw.output_truncated,
         events: Array.isArray(raw.events) ? raw.events : [],
         child: null,
       };

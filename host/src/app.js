@@ -44,6 +44,54 @@ function parseBoolean(value, fallback) {
   return fallback;
 }
 
+// Token-bucket rate limiter with a sliding window. Mirrors the relay's limiter
+// (relay/src/app.js) so paired devices see a consistent budget at both edges.
+class RateLimiter {
+  constructor({ limit, windowMs }) {
+    this.limit = limit;
+    this.windowMs = windowMs;
+    this.buckets = new Map();
+  }
+
+  check(key) {
+    const now = Date.now();
+    const bucket = (this.buckets.get(key) || []).filter((entry) => entry > now - this.windowMs);
+    if (bucket.length >= this.limit) {
+      this.buckets.set(key, bucket);
+      return false;
+    }
+    bucket.push(now);
+    this.buckets.set(key, bucket);
+    return true;
+  }
+
+  // Exposed for tests and external wiring.
+  reset() {
+    this.buckets.clear();
+  }
+}
+
+function buildRateLimitMiddleware(limiter, options = {}) {
+  const methods = new Set(options.methods || ["POST", "DELETE", "PUT", "PATCH"]);
+  return (req, res, next) => {
+    if (!methods.has(req.method)) {
+      next();
+      return;
+    }
+    const key =
+      req.auth?.device_id ||
+      req.auth?.token ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      "anon";
+    if (!limiter.check(key)) {
+      res.status(429).json({ error: "rate_limited" });
+      return;
+    }
+    next();
+  };
+}
+
 function requireLocalhost(req, res, next) {
   const remoteAddress = req.socket?.remoteAddress || "";
   const allowed = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
@@ -56,6 +104,64 @@ function requireLocalhost(req, res, next) {
 
 function errorCodeFor(error) {
   return error?.code || error?.message || "internal_error";
+}
+
+// Known codes whose `detail` string is safe to forward to callers: they are
+// short, caller-actionable and don't contain host internals. Anything outside
+// this set is reduced to a generic "internal_error" to avoid leaking file
+// paths, stack traces, or bearer tokens captured in downstream error messages.
+const SAFE_ERROR_CODES = new Set([
+  "bad_request",
+  "unauthorized",
+  "forbidden",
+  "pairing_code_expired_or_used",
+  "rate_limited",
+  "restore_ref_not_allowed",
+  "host_offline",
+  "quick_action_invalid_url",
+  "quick_action_missing_query",
+  "quick_action_missing_command",
+  "quick_action_unsupported",
+  "browser_invalid_selector",
+  "browser_control_unavailable",
+  "browser_page_not_found",
+  "browser_click_target_not_found",
+  "browser_fill_target_not_found",
+  "instance_not_found",
+  "cli_instance_not_found",
+  "cli_instance_not_running",
+  "stdin_unavailable",
+  "stdin_write_failed",
+  "unknown_cli_preset",
+  "too_many_extra_args",
+  "extra_arg_too_long",
+  "empty_prompt",
+  "duplicate_initial_prompt",
+  // Team App IPC failures forwarded from the automation layer. These describe
+  // caller-actionable conditions (feature not implemented, dispatch failed,
+  // etc.) and don't carry file paths or secrets.
+  "not_supported",
+  "not_implemented",
+  "command_failed",
+  "dispatch_failed",
+  "ipc_response_timeout",
+  "host_timeout",
+]);
+
+const BEARER_TOKEN_PATTERN = /Bearer\s+[A-Za-z0-9._~+/=-]+/gi;
+
+function sanitizeErrorDetail(code, error) {
+  if (!SAFE_ERROR_CODES.has(code)) {
+    return null;
+  }
+  const detail = error?.message;
+  if (typeof detail !== "string" || !detail) {
+    return null;
+  }
+  // Defensive: drop anything that looks like a bearer token in case a
+  // downstream error message interpolated Authorization headers.
+  const cleaned = detail.replace(BEARER_TOKEN_PATTERN, "Bearer [redacted]");
+  return cleaned.length > 200 ? `${cleaned.slice(0, 200)}…` : cleaned;
 }
 
 function statusForError(error) {
@@ -367,6 +473,18 @@ export function createMagicHatRuntime(options = {}) {
 
   app.use("/v1", enforceLanOnly(options.lanGuardOptions));
   app.use("/v1", buildAuthMiddleware(pairingManager));
+
+  // Rate-limit mutating /v1 requests so an authenticated (but potentially
+  // misbehaving or compromised) device can't spam launch/prompt/close and
+  // starve the host. Defaults: 60 mutations in a 10 s rolling window per
+  // device_id; tunable via options.rateLimit or env config.
+  const mutationLimiter =
+    options.mutationLimiter ||
+    new RateLimiter({
+      limit: options.rateLimit?.mutationLimit ?? 60,
+      windowMs: options.rateLimit?.mutationWindowMs ?? 10_000,
+    });
+  app.use("/v1", buildRateLimitMiddleware(mutationLimiter));
 
   app.post(
     "/v1/pairing/session",
@@ -865,10 +983,15 @@ export function createMagicHatRuntime(options = {}) {
     if (res.headersSent) {
       return;
     }
-    res.status(statusForError(error)).json({
-      error: errorCodeFor(error),
-      detail: error?.message || "unknown",
-    });
+    const code = errorCodeFor(error);
+    const status = statusForError(error);
+    const safeCode = SAFE_ERROR_CODES.has(code) ? code : (status >= 500 ? "internal_error" : code);
+    const payload = { error: safeCode };
+    const detail = sanitizeErrorDetail(safeCode, error);
+    if (detail) {
+      payload.detail = detail;
+    }
+    res.status(status).json(payload);
   });
 
   return {

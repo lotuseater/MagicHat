@@ -58,6 +58,8 @@ export async function createRuntime(options = {}) {
     cliInstancesManager: options.cliInstancesManager,
     browserControlService: options.browserControlService,
     quickActionsService: options.quickActionsService,
+    mutationLimiter: options.mutationLimiter,
+    rateLimit: options.rateLimit,
   });
 
   const server = await new Promise((resolve, reject) => {

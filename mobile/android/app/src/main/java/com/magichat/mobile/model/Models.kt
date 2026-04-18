@@ -364,6 +364,8 @@ data class CliInstanceWire(
     val status: String,
     val output: String = "",
     @Json(name = "event_count") val eventCount: Int = 0,
+    @Json(name = "output_truncated") val outputTruncated: Boolean = false,
+    @Json(name = "total_output_chars") val totalOutputChars: Int = 0,
 )
 
 data class CliInstancesResponse(

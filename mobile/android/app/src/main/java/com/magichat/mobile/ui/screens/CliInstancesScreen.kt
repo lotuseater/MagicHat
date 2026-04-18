@@ -330,6 +330,14 @@ private fun CliSelectedInstanceCard(
                     .heightIn(min = 160.dp, max = 360.dp)
                     .verticalScroll(rememberScrollState()),
             )
+            if (target.outputTruncated) {
+                val totalKb = target.totalOutputChars / 1024
+                Text(
+                    "Buffer truncated — $totalKb KB written so far, earlier output dropped.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             OutlinedTextField(
                 value = followUpInput,
