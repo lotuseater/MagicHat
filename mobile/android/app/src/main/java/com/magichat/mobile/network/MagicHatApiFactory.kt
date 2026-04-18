@@ -21,11 +21,18 @@ class MagicHatApiFactory {
         baseUrl: String,
         tokenProvider: () -> String?,
         certificatePinsetVersion: String? = null,
+        sessionRefresher: SessionRefresher? = null,
     ): MagicHatRelayApiService {
         val normalizedBaseUrl = RelayTrustPolicy.validateRelayBaseUrl(baseUrl)
         val pins = RelayTrustPolicy.pinsForVersion(certificatePinsetVersion)
-        val client = OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(tokenProvider))
+        if (sessionRefresher != null) {
+            // Installed AFTER AuthInterceptor so it sees the Authorization
+            // header and can swap it on retry.
+            builder.addInterceptor(TokenRefreshInterceptor(sessionRefresher))
+        }
+        val client = builder
             .connectTimeout(3, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)

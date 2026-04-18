@@ -729,8 +729,47 @@ class MagicHatRepository(
 
     private fun relayApiFor(record: PairedHostRecord) = apiFactory.createRelay(
         connectionBaseUrl(record),
-        tokenProvider = { record.sessionToken },
+        // Read the freshest token every call so a concurrent refresh is picked
+        // up without creating a new Retrofit service.
+        tokenProvider = {
+            runCatching { kotlinx.coroutines.runBlocking { pairingStore.readSnapshot() } }
+                .getOrNull()
+                ?.pairedHosts
+                ?.firstOrNull { it.hostId == record.hostId }
+                ?.sessionToken
+                ?: record.sessionToken
+        },
         certificatePinsetVersion = record.certificatePinsetVersion,
+        // Transparent 401 recovery: if the relay rejects a call with 401, try
+        // once to mint a new access token from the stored refresh_token and
+        // replay the request. User-visible 401s then only happen when the
+        // refresh itself fails (e.g., device revoked, refresh expired).
+        sessionRefresher = com.magichat.mobile.network.SessionRefresher { previousToken ->
+            try {
+                val current = pairingStore.readSnapshot()
+                    .pairedHosts.firstOrNull { it.hostId == record.hostId } ?: return@SessionRefresher null
+                val refreshToken = current.refreshToken ?: return@SessionRefresher null
+                // Skip if another caller already rotated past the token that 401'd.
+                if (!previousToken.isNullOrBlank() && current.sessionToken != previousToken) {
+                    return@SessionRefresher current.sessionToken
+                }
+                val refreshed = apiFactory.createRelay(
+                    connectionBaseUrl(current),
+                    tokenProvider = { null },
+                    certificatePinsetVersion = current.certificatePinsetVersion,
+                ).refreshSession(RemoteSessionRefreshRequest(refreshToken = refreshToken))
+                val updated = current.copy(
+                    sessionToken = refreshed.accessToken,
+                    refreshToken = refreshed.refreshToken,
+                    accessTokenExpiresAt = refreshed.accessTokenExpiresAt,
+                    refreshTokenExpiresAt = refreshed.refreshTokenExpiresAt,
+                )
+                pairingStore.upsert(updated)
+                updated.sessionToken
+            } catch (_: Throwable) {
+                null
+            }
+        },
     )
 
     private fun connectionBaseUrl(record: PairedHostRecord): String {

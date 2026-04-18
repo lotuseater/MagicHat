@@ -85,6 +85,19 @@ class MagicHatViewModel(
     private val _uiState = MutableStateFlow(MagicHatUiState())
     val uiState: StateFlow<MagicHatUiState> = _uiState.asStateFlow()
 
+    /**
+     * Called by the network watcher when the device gets a (new) validated
+     * internet connection. We re-subscribe the currently-selected instance /
+     * CLI stream so SSE, which can hang on stale sockets, drops and
+     * reconnects on the fresh IP.
+     */
+    fun onNetworkRegained() {
+        val state = _uiState.value
+        launchBackgroundRefresh { repository.refreshActiveHost() }
+        state.selectedInstanceId?.let { subscribeToInstance(it) }
+        state.cliSelectedInstanceId?.let { subscribeToCliInstance(it) }
+    }
+
     init {
         viewModelScope.launch {
             repository.pairingState.collect { pairing ->
@@ -890,7 +903,16 @@ class MagicHatViewModel(
                         pairingStore = store,
                         deviceKeyStore = DeviceKeyStore(appContext),
                     )
-                    return MagicHatViewModel(repository) as T
+                    val viewModel = MagicHatViewModel(repository)
+                    // Auto-nudge reconnects when the OS reports a new usable
+                    // network — wifi-to-cellular handoffs, captive portal
+                    // unlock, tethering switch. Without this, a stale SSE can
+                    // sit dead for up to 30 s before OkHttp notices.
+                    val watcher = com.magichat.mobile.network.NetworkReconnectWatcher(appContext) {
+                        viewModel.onNetworkRegained()
+                    }
+                    watcher.start()
+                    return viewModel as T
                 }
             }
         }
