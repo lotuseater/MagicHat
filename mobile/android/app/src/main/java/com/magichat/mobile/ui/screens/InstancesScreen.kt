@@ -9,18 +9,32 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.model.FenrusLauncherOption
 import com.magichat.mobile.model.KnownRestoreRef
@@ -32,6 +46,7 @@ import com.magichat.mobile.state.MagicHatUiState
 import com.magichat.mobile.ui.components.HostContextCard
 import com.magichat.mobile.ui.components.StatusChip
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InstancesScreen(
     state: MagicHatUiState,
@@ -50,82 +65,116 @@ fun InstancesScreen(
 ) {
     val hasActiveHost = state.activeHost != null
     val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
+    var pendingClose by remember { mutableStateOf<TeamAppInstance?>(null) }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Text("Sessions", style = MaterialTheme.typography.headlineSmall)
-        }
+    pendingClose?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingClose = null },
+            title = { Text("Close session?") },
+            text = {
+                Text(
+                    "This will close \"${target.title}\" on the host. Any unsaved work in the Team App window may be lost.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onCloseInstance(target.instanceId)
+                    pendingClose = null
+                }) { Text("Close session") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClose = null }) { Text("Cancel") }
+            },
+        )
+    }
 
-        item {
-            HostContextCard(
-                host = state.activeHost,
-                presence = state.activeHostPresence,
-                activeInstanceId = state.selectedInstanceId,
-                onRefreshStatus = if (state.activeHost != null) onRefreshActiveHost else null,
-                refreshEnabled = state.isLoading.not(),
-            )
-        }
+    PullToRefreshBox(
+        isRefreshing = state.isLoading && hasActiveHost,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                Text("Sessions", style = MaterialTheme.typography.headlineSmall)
+            }
 
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onRefresh, enabled = hasActiveHost && state.isLoading.not()) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = null)
-                    Text(" Refresh")
+            item {
+                HostContextCard(
+                    host = state.activeHost,
+                    presence = state.activeHostPresence,
+                    activeInstanceId = state.selectedInstanceId,
+                    onRefreshStatus = if (state.activeHost != null) onRefreshActiveHost else null,
+                    refreshEnabled = state.isLoading.not(),
+                )
+            }
+
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onRefresh, enabled = hasActiveHost && state.isLoading.not()) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = null)
+                        Text(" Refresh")
+                    }
+                    Text(
+                        "Pull down to refresh",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, top = 10.dp),
+                    )
                 }
             }
-        }
 
-        item {
-            SessionComposerCard(
-                state = state,
-                canRunCommands = canRunCommands,
-                onLaunchTitleChanged = onLaunchTitleChanged,
-                onLaunchTeamModeChanged = onLaunchTeamModeChanged,
-                onLaunchLauncherPresetChanged = onLaunchLauncherPresetChanged,
-                onLaunchFenrusLauncherChanged = onLaunchFenrusLauncherChanged,
-                onLaunchInstance = onLaunchInstance,
-            )
-        }
-
-        item {
-            RestoreSessionCard(
-                state = state,
-                canRunCommands = canRunCommands,
-                onRestoreSessionChanged = onRestoreSessionChanged,
-                onPickRestoreRef = onPickRestoreRef,
-                onRestoreSession = onRestoreSession,
-            )
-        }
-
-        item {
-            Text("Open Sessions", style = MaterialTheme.typography.titleMedium)
-        }
-
-        if (!hasActiveHost) {
             item {
-                Text(
-                    "Choose a host on the Hosts screen first.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                SessionComposerCard(
+                    state = state,
+                    canRunCommands = canRunCommands,
+                    onLaunchTitleChanged = onLaunchTitleChanged,
+                    onLaunchTeamModeChanged = onLaunchTeamModeChanged,
+                    onLaunchLauncherPresetChanged = onLaunchLauncherPresetChanged,
+                    onLaunchFenrusLauncherChanged = onLaunchFenrusLauncherChanged,
+                    onLaunchInstance = onLaunchInstance,
                 )
             }
-        } else if (state.instances.isEmpty()) {
+
             item {
-                Text(
-                    "Connected, but this host does not currently expose any open Team App sessions.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                RestoreSessionCard(
+                    state = state,
+                    canRunCommands = canRunCommands,
+                    onRestoreSessionChanged = onRestoreSessionChanged,
+                    onPickRestoreRef = onPickRestoreRef,
+                    onRestoreSession = onRestoreSession,
                 )
             }
-        } else {
-            items(state.instances, key = { it.instanceId }) { instance ->
-                SessionRow(
-                    instance = instance,
-                    selected = instance.instanceId == state.selectedInstanceId,
-                    enabled = canRunCommands && state.isLoading.not(),
-                    onOpen = { onOpenInstance(instance.instanceId) },
-                    onClose = { onCloseInstance(instance.instanceId) },
-                )
+
+            item {
+                Text("Open Sessions", style = MaterialTheme.typography.titleMedium)
+            }
+
+            if (!hasActiveHost) {
+                item {
+                    Text(
+                        "Choose a host on the Hosts screen first.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else if (state.instances.isEmpty()) {
+                item {
+                    Text(
+                        "Connected, but this host does not currently expose any open Team App sessions.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                items(state.instances, key = { it.instanceId }) { instance ->
+                    SessionRow(
+                        instance = instance,
+                        selected = instance.instanceId == state.selectedInstanceId,
+                        enabled = canRunCommands && state.isLoading.not(),
+                        onOpen = { onOpenInstance(instance.instanceId) },
+                        onCloseRequested = { pendingClose = instance },
+                    )
+                }
             }
         }
     }
@@ -163,7 +212,8 @@ private fun SessionComposerCard(
                 value = state.launchTitleInput,
                 onValueChange = onLaunchTitleChanged,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Initial Prompt") },
+                label = { Text("Initial prompt") },
+                placeholder = { Text("Describe the task for the team") },
                 minLines = 3,
                 enabled = canRunCommands && state.isLoading.not(),
             )
@@ -200,6 +250,19 @@ private fun SessionComposerCard(
                 enabled = canRunCommands && state.isLoading.not() && hasInitialPrompt,
             ) {
                 Text("Start Session")
+            }
+            if (!canRunCommands) {
+                Text(
+                    "Host is offline — can't start a session right now.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (!hasInitialPrompt) {
+                Text(
+                    "Enter an initial prompt to enable Start Session.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -263,6 +326,7 @@ private fun RestoreSessionCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun <T> LaunchOptionSelector(
     label: String,
@@ -277,23 +341,13 @@ private fun <T> LaunchOptionSelector(
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(options) { option ->
                 val isSelected = option == selected
-                StatusChip(
-                    label = optionLabel(option),
-                    background = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .padding(end = 0.dp),
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { if (!isSelected) onSelected(option) },
+                    enabled = enabled,
+                    label = { Text(optionLabel(option)) },
+                    colors = FilterChipDefaults.filterChipColors(),
                 )
-            }
-        }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(options) { option ->
-                OutlinedButton(
-                    onClick = { onSelected(option) },
-                    enabled = enabled && option != selected,
-                ) {
-                    Text(optionLabel(option))
-                }
             }
         }
     }
@@ -329,8 +383,9 @@ private fun SessionRow(
     selected: Boolean,
     enabled: Boolean,
     onOpen: () -> Unit,
-    onClose: () -> Unit,
+    onCloseRequested: () -> Unit,
 ) {
+    val clipboard = LocalClipboardManager.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -360,11 +415,23 @@ private fun SessionRow(
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
-            Text(
-                instance.instanceId,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    instance.instanceId,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { clipboard.setText(AnnotatedString(instance.instanceId)) }) {
+                    Icon(
+                        Icons.Outlined.ContentCopy,
+                        contentDescription = "Copy instance id",
+                    )
+                }
+            }
             instance.sessionId?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     "session: $it",
@@ -386,7 +453,7 @@ private fun SessionRow(
                 Button(onClick = onOpen, enabled = enabled && !selected) {
                     Text(if (selected) "Open" else "View")
                 }
-                OutlinedButton(onClick = onClose, enabled = enabled) {
+                OutlinedButton(onClick = onCloseRequested, enabled = enabled) {
                     Text("Close")
                 }
             }

@@ -186,51 +186,31 @@ describe("instance launch/close race", () => {
       },
     });
 
-    expect(sendCommand.mock.calls).toEqual([
-      [
-        expect.objectContaining({ pid: 701 }),
-        expect.objectContaining({
-          cmd: "ui_select_combo",
-          control: "team_mode",
-          index: 0,
-        }),
-        expect.objectContaining({ requireOk: true }),
-      ],
-      [
-        expect.objectContaining({ pid: 701 }),
-        expect.objectContaining({
-          cmd: "ui_select_combo",
-          control: "launcher",
-          index: 1,
-        }),
-        expect.objectContaining({ requireOk: true }),
-      ],
-      [
-        expect.objectContaining({ pid: 701 }),
-        expect.objectContaining({
-          cmd: "ui_select_combo",
-          control: "fenrus_launcher",
-          index: 2,
-        }),
-        expect.objectContaining({ requireOk: true }),
-      ],
-      [
-        expect.objectContaining({ pid: 701 }),
-        expect.objectContaining({
-          cmd: "submit_initial_prompt",
-          prompt: "Hej",
-        }),
-        expect.objectContaining({ requireOk: true }),
-      ],
-      [
-        expect.objectContaining({ pid: 701 }),
-        expect.objectContaining({
-          cmd: "ui_select_combo",
-          control: "fenrus_launcher",
-          index: 2,
-        }),
-        expect.objectContaining({ requireOk: true }),
-      ],
+    const cmdsOf = (name) =>
+      sendCommand.mock.calls
+        .map(([, payload]) => payload)
+        .filter((payload) => payload.cmd === name);
+
+    // Direct-state profile write is sent before UI combo selection so the
+    // Team App applies the selection even if the UI is still settling.
+    const profileCalls = cmdsOf("set_startup_profile");
+    expect(profileCalls.length).toBeGreaterThanOrEqual(2);
+    expect(profileCalls[0]).toMatchObject({
+      team_mode: "simple",
+      launcher_preset: "codex",
+    });
+    expect(profileCalls.some((p) => p.fenrus_launcher === "codex")).toBe(true);
+
+    expect(cmdsOf("ui_select_combo")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ control: "team_mode", index: 0 }),
+        expect.objectContaining({ control: "launcher", index: 1 }),
+        expect.objectContaining({ control: "fenrus_launcher", index: 2 }),
+      ]),
+    );
+
+    expect(cmdsOf("submit_initial_prompt")).toEqual([
+      expect.objectContaining({ prompt: "Hej" }),
     ]);
   });
 

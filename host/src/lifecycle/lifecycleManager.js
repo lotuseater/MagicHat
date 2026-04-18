@@ -106,9 +106,11 @@ export class LifecycleManager {
         }, { requireOk: true });
 
         // Team App can ignore very-early combo automation while the window is settling.
-        // Re-apply the Fenrus selection once the task is queued so the override sticks.
-        if (typeof fenrusLauncher === "string" && fenrusLauncher.length > 0) {
+        // Re-apply the full startup profile once the task is queued so the selections
+        // stick on the toolbar visuals after team creation has consumed them.
+        if (sharedStartupProfile || (typeof fenrusLauncher === "string" && fenrusLauncher.length > 0)) {
           await sleep(250);
+          await this.applySharedStartupProfile(launched, sharedStartupProfile);
           await this.applyFenrusLauncher(launched, fenrusLauncher);
         }
       }
@@ -158,6 +160,13 @@ export class LifecycleManager {
       return;
     }
 
+    // Direct state write first so the selection survives even if the combo
+    // message races Team App window init and the UI select is dropped.
+    await this.ipcClient.sendCommand(instance, {
+      cmd: "set_startup_profile",
+      fenrus_launcher: fenrusLauncher,
+    }, { requireOk: true });
+
     const fenrusComboIndex = FENRUS_COMBO_INDEX_BY_PRESET[fenrusLauncher];
     if (Number.isInteger(fenrusComboIndex)) {
       await this.ipcClient.sendCommand(instance, {
@@ -165,13 +174,7 @@ export class LifecycleManager {
         control: "fenrus_launcher",
         index: fenrusComboIndex,
       }, { requireOk: true });
-      return;
     }
-
-    await this.ipcClient.sendCommand(instance, {
-      cmd: "set_startup_profile",
-      fenrus_launcher: fenrusLauncher,
-    }, { requireOk: true });
   }
 
   async applySharedStartupProfile(instance, startupProfile) {
@@ -179,11 +182,22 @@ export class LifecycleManager {
       return;
     }
 
-    const fallbackProfile = { ...startupProfile };
-    const teamMode = typeof fallbackProfile.team_mode === "string" ? fallbackProfile.team_mode : "";
-    const launcherPreset =
-      typeof fallbackProfile.launcher_preset === "string" ? fallbackProfile.launcher_preset : "";
+    const profile = Object.fromEntries(
+      Object.entries(startupProfile).filter(([, value]) => value !== undefined && value !== null && value !== ""),
+    );
+    if (Object.keys(profile).length === 0) {
+      return;
+    }
 
+    // Direct state write first — sendChatToErasmus reads run_mode/launcher
+    // from the combos at team-creation time, and early ui_select_combo can
+    // race the window init. set_startup_profile bypasses the UI race.
+    await this.ipcClient.sendCommand(instance, {
+      cmd: "set_startup_profile",
+      ...profile,
+    }, { requireOk: true });
+
+    const teamMode = typeof profile.team_mode === "string" ? profile.team_mode : "";
     const teamModeIndex = TEAM_MODE_COMBO_INDEX_BY_MODE[teamMode];
     if (Number.isInteger(teamModeIndex)) {
       await this.ipcClient.sendCommand(instance, {
@@ -191,9 +205,10 @@ export class LifecycleManager {
         control: "team_mode",
         index: teamModeIndex,
       }, { requireOk: true });
-      delete fallbackProfile.team_mode;
     }
 
+    const launcherPreset =
+      typeof profile.launcher_preset === "string" ? profile.launcher_preset : "";
     const launcherIndex = LAUNCHER_COMBO_INDEX_BY_PRESET[launcherPreset];
     if (Number.isInteger(launcherIndex)) {
       await this.ipcClient.sendCommand(instance, {
@@ -201,16 +216,6 @@ export class LifecycleManager {
         control: "launcher",
         index: launcherIndex,
       }, { requireOk: true });
-      delete fallbackProfile.launcher_preset;
     }
-
-    if (Object.keys(fallbackProfile).length === 0) {
-      return;
-    }
-
-    await this.ipcClient.sendCommand(instance, {
-      cmd: "set_startup_profile",
-      ...fallbackProfile,
-    }, { requireOk: true });
   }
 }

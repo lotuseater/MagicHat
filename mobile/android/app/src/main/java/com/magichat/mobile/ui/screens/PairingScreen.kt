@@ -9,9 +9,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.WifiTethering
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -20,10 +22,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.mlkit.common.MlKitException
@@ -52,6 +60,7 @@ fun PairingScreen(
     onError: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val scanner = remember(context) {
         val options = GmsBarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
@@ -60,6 +69,28 @@ fun PairingScreen(
         GmsBarcodeScanning.getClient(context, options)
     }
     val canPairRemote = state.isLoading.not() && state.remotePairUriInput.isNotBlank()
+    var forgetTarget by remember { mutableStateOf<PairedHostRecord?>(null) }
+
+    forgetTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { forgetTarget = null },
+            title = { Text("Forget host?") },
+            text = {
+                Text(
+                    "Remove \"${target.displayName}\" from this device. You'll need to pair again from the host to reconnect.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onForgetHost(target.hostId)
+                    forgetTarget = null
+                }) { Text("Forget") }
+            },
+            dismissButton = {
+                TextButton(onClick = { forgetTarget = null }) { Text("Cancel") }
+            },
+        )
+    }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -149,6 +180,18 @@ fun PairingScreen(
                         placeholder = { Text("magichat://pair?...") },
                         minLines = 2,
                         enabled = state.isLoading.not(),
+                        trailingIcon = {
+                            if (state.remotePairUriInput.isNotBlank()) {
+                                IconButton(onClick = {
+                                    clipboard.setText(AnnotatedString(state.remotePairUriInput))
+                                }) {
+                                    Icon(
+                                        Icons.Outlined.ContentCopy,
+                                        contentDescription = "Copy pair URI",
+                                    )
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -269,7 +312,7 @@ fun PairingScreen(
                     active = paired.hostId == state.activeHostId,
                     isLoading = state.isLoading,
                     onSelect = { onSelectPairedHost(paired.hostId) },
-                    onForget = { onForgetHost(paired.hostId) },
+                    onForget = { forgetTarget = paired },
                 )
             }
         }

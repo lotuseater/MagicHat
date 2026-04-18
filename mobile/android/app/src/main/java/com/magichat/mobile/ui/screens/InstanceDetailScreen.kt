@@ -11,8 +11,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -23,8 +29,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.model.InstanceEvent
@@ -56,7 +66,9 @@ fun InstanceDetailScreen(
     val canRunCommands = state.activeHost?.canRunCommands(state.activeHostPresence) == true
     val canSendPrompt = state.selectedInstanceId != null && state.promptInput.isNotBlank() && state.isLoading.not() && canRunCommands
     val canSendFollowUp = state.selectedInstanceId != null && state.followUpInput.isNotBlank() && state.isLoading.not() && canRunCommands
-    var activeTab by remember(detail?.instance?.instanceId) { mutableStateOf(DetailTab.OVERVIEW) }
+    val tabKey = detail?.instance?.instanceId ?: "_none_"
+    var activeTabOrdinal by rememberSaveable(tabKey) { mutableStateOf(DetailTab.OVERVIEW.ordinal) }
+    val activeTab = DetailTab.entries.getOrElse(activeTabOrdinal) { DetailTab.OVERVIEW }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -140,7 +152,7 @@ fun InstanceDetailScreen(
                 DetailTab.entries.forEach { tab ->
                     Tab(
                         selected = activeTab == tab,
-                        onClick = { activeTab = tab },
+                        onClick = { activeTabOrdinal = tab.ordinal },
                         text = { Text(tab.label) },
                     )
                 }
@@ -205,7 +217,8 @@ private fun PromptActionsCard(
                 value = state.promptInput,
                 onValueChange = onPromptChanged,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Initial Prompt") },
+                label = { Text("New prompt") },
+                placeholder = { Text("Start a new task on this session") },
                 minLines = 2,
                 enabled = state.selectedInstanceId != null && state.isLoading.not() && canRunCommands,
             )
@@ -278,12 +291,14 @@ private fun OverviewTab(detail: com.magichat.mobile.model.InstanceDetail, stream
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TeamTab(
     state: MagicHatUiState,
     onSelectTerminalAgent: (String) -> Unit,
 ) {
     val detail = state.selectedDetail ?: return
+    val clipboard = LocalClipboardManager.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -304,18 +319,32 @@ private fun TeamTab(
             ) {
                 detail.terminalsByAgent.keys.sorted().forEach { agentId ->
                     val selected = state.selectedTerminalAgent == agentId
-                    val agentLabel = displayAgentName(agentId)
-                    OutlinedButton(
-                        onClick = { onSelectTerminalAgent(agentId) },
-                        enabled = !selected && state.isLoading.not(),
-                    ) {
-                        Text(if (selected) "$agentLabel selected" else agentLabel)
-                    }
+                    FilterChip(
+                        selected = selected,
+                        onClick = { if (!selected) onSelectTerminalAgent(agentId) },
+                        enabled = state.isLoading.not(),
+                        label = { Text(displayAgentName(agentId)) },
+                    )
                 }
             }
             state.selectedTerminalAgent?.let { agentId ->
                 detail.terminalsByAgent[agentId]?.let { terminal ->
-                    Text("Terminal: ${displayAgentName(agentId)}", style = MaterialTheme.typography.titleSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Terminal: ${displayAgentName(agentId)}",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(
+                            onClick = { clipboard.setText(AnnotatedString(terminal)) },
+                            enabled = terminal.isNotBlank(),
+                        ) {
+                            Icon(
+                                Icons.Outlined.ContentCopy,
+                                contentDescription = "Copy terminal output",
+                            )
+                        }
+                    }
                     Text(
                         terminal,
                         fontFamily = FontFamily.Monospace,
@@ -356,21 +385,22 @@ private fun StreamTab(events: List<InstanceEvent>) {
 
 @Composable
 private fun ChatEntryCard(entry: Map<String, Any?>) {
+    val speaker = listOf("sender", "role", "agent_id")
+        .firstNotNullOfOrNull { key -> entry[key]?.toString()?.takeIf { it.isNotBlank() } }
+        ?: "message"
+    val body = listOf("text", "message", "content")
+        .firstNotNullOfOrNull { key -> entry[key]?.toString()?.takeIf { it.isNotBlank() } }
+    if (body == null) {
+        // Hide malformed entries rather than dumping the raw map to the user.
+        return
+    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val speaker = listOf("sender", "role", "agent_id")
-                .firstNotNullOfOrNull { key -> entry[key]?.toString()?.takeIf { it.isNotBlank() } }
-                ?: "message"
             Text(displayAgentName(speaker), style = MaterialTheme.typography.titleSmall)
-            Text(
-                listOf("text", "message", "content")
-                    .firstNotNullOfOrNull { key -> entry[key]?.toString()?.takeIf { it.isNotBlank() } }
-                    ?: entry.toString(),
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Text(body, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
