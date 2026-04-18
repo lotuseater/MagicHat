@@ -5,6 +5,8 @@ import com.magichat.mobile.model.CliInstancesResponse
 import com.magichat.mobile.model.CliLaunchRequest
 import com.magichat.mobile.model.CliPresetsResponse
 import com.magichat.mobile.model.CliPromptRequest
+import com.magichat.mobile.model.BrowserActionRequest
+import com.magichat.mobile.model.BrowserPagesResponse
 import com.magichat.mobile.model.FollowUpRequest
 import com.magichat.mobile.model.InstanceWire
 import com.magichat.mobile.model.InstancesResponse
@@ -139,5 +141,16 @@ interface MagicHatRelayApiService {
         @Path("hostId") hostId: String,
         @Path("instanceId") instanceId: String,
         @Body request: CliPromptRequest,
+    ): SubmissionReceipt
+
+    @GET("v2/mobile/hosts/{hostId}/browser/pages")
+    suspend fun listBrowserPages(
+        @Path("hostId") hostId: String,
+    ): BrowserPagesResponse
+
+    @POST("v2/mobile/hosts/{hostId}/browser/actions")
+    suspend fun runBrowserAction(
+        @Path("hostId") hostId: String,
+        @Body request: BrowserActionRequest,
     ): SubmissionReceipt
 }

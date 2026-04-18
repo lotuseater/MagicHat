@@ -242,7 +242,7 @@ private fun CliLauncherCard(
                         FilterChip(
                             selected = isSelected,
                             onClick = { if (!isSelected) onPresetChanged(preset.preset) },
-                            enabled = canRunCommands && state.isLoading.not(),
+                            enabled = canRunCommands && state.isLoading.not() && state.cliLaunchInFlight.not(),
                             label = { Text(preset.label) },
                         )
                     }
@@ -256,14 +256,16 @@ private fun CliLauncherCard(
                 label = { Text("Initial prompt (optional)") },
                 placeholder = { Text("Task for the CLI to start with") },
                 minLines = 2,
-                enabled = canRunCommands && state.isLoading.not(),
+                enabled = canRunCommands && state.isLoading.not() && state.cliLaunchInFlight.not(),
             )
 
             Button(
                 onClick = onLaunch,
-                enabled = canRunCommands && state.isLoading.not() && state.cliPresets.isNotEmpty(),
+                enabled = canRunCommands && state.isLoading.not()
+                    && state.cliLaunchInFlight.not()
+                    && state.cliPresets.isNotEmpty(),
             ) {
-                Text("Launch CLI")
+                Text(if (state.cliLaunchInFlight) "Launching..." else "Launch CLI")
             }
             if (!canRunCommands) {
                 Text(

@@ -12,6 +12,8 @@ import { ProcessController } from "./lifecycle/processController.js";
 import { LifecycleManager } from "./lifecycle/lifecycleManager.js";
 import { HostControlService } from "./operations/hostControlService.js";
 import { CliInstancesManager } from "./operations/cliInstancesManager.js";
+import { BrowserControlService } from "./operations/browserControlService.js";
+import { QuickActionsService } from "./operations/quickActionsService.js";
 import { RemoteAccessState } from "./remote/remoteAccessState.js";
 import { RelayClient } from "./remote/relayClient.js";
 
@@ -64,6 +66,18 @@ function statusForError(error) {
       return 400;
     case "host_offline":
       return 409;
+    case "quick_action_invalid_url":
+    case "quick_action_missing_query":
+    case "quick_action_missing_command":
+    case "quick_action_unsupported":
+    case "browser_invalid_selector":
+      return 400;
+    case "browser_control_unavailable":
+      return 409;
+    case "browser_page_not_found":
+    case "browser_click_target_not_found":
+    case "browser_fill_target_not_found":
+      return 404;
     default:
       return 500;
   }
@@ -115,6 +129,21 @@ export function createMagicHatRuntime(options = {}) {
     scope: "lan_only_v1",
   };
 
+  const cliInstancesManager =
+    options.cliInstancesManager ||
+    new CliInstancesManager({
+      statePath: path.join(path.dirname(config.statePath), "magichat_cli_instances.json"),
+      processProbe: options.processProbe,
+    });
+
+  const browserControlService =
+    options.browserControlService ||
+    new BrowserControlService();
+
+  const quickActionsService =
+    options.quickActionsService ||
+    new QuickActionsService({ browserControlService });
+
   const hostControlService =
     options.hostControlService ||
     new HostControlService({
@@ -122,13 +151,7 @@ export function createMagicHatRuntime(options = {}) {
       ipcClient,
       lifecycleManager,
       remoteAccessState,
-    });
-
-  const cliInstancesManager =
-    options.cliInstancesManager ||
-    new CliInstancesManager({
-      statePath: path.join(path.dirname(config.statePath), "magichat_cli_instances.json"),
-      processProbe: options.processProbe,
+      quickActionsService,
     });
 
   const relaySubscriptions = new Map();
@@ -236,6 +259,14 @@ export function createMagicHatRuntime(options = {}) {
             });
           case "send_cli_prompt":
             return cliInstancesManager.sendPrompt(command.params.instance_id, command.params.prompt);
+          case "list_quick_actions":
+            return { actions: quickActionsService.listActions() };
+          case "execute_quick_action":
+            return quickActionsService.execute(command.params);
+          case "list_browser_pages":
+            return { pages: await browserControlService.listPages() };
+          case "execute_browser_action":
+            return await quickActionsService.execute(command.params);
           case "subscribe_cli_updates": {
             const subscriptionId = command.params.subscription_id;
             const instanceId = command.params.instance_id;
@@ -614,6 +645,36 @@ export function createMagicHatRuntime(options = {}) {
   );
 
   app.get(
+    "/v1/quick-actions",
+    asyncRoute(async (_req, res) => {
+      res.json({ actions: quickActionsService.listActions() });
+    }),
+  );
+
+  app.post(
+    "/v1/quick-actions",
+    asyncRoute(async (req, res) => {
+      const result = await quickActionsService.execute(req.body || {});
+      res.status(202).json(result);
+    }),
+  );
+
+  app.get(
+    "/v1/browser/pages",
+    asyncRoute(async (_req, res) => {
+      res.json({ pages: await browserControlService.listPages() });
+    }),
+  );
+
+  app.post(
+    "/v1/browser/actions",
+    asyncRoute(async (req, res) => {
+      const result = await quickActionsService.execute(req.body || {});
+      res.status(202).json(result);
+    }),
+  );
+
+  app.get(
     "/v1/instances/:pid/poll",
     asyncRoute(async (req, res) => {
       const instance = await hostControlService.requireInstance(req.params.pid);
@@ -806,6 +867,8 @@ export function createMagicHatRuntime(options = {}) {
     ipcClient,
     lifecycleManager,
     hostControlService,
+    browserControlService,
+    quickActionsService,
     remoteAccessState,
     relayClient,
     pairing_code: activePairing.code,

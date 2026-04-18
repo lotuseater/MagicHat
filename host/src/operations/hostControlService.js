@@ -45,11 +45,21 @@ function summarizeHealth(instance) {
 }
 
 export class HostControlService {
-  constructor({ beaconStore, ipcClient, lifecycleManager, remoteAccessState }) {
+  constructor({
+    beaconStore,
+    ipcClient,
+    lifecycleManager,
+    remoteAccessState,
+    quickActionsService,
+    launchDedupWindowMs,
+  }) {
     this.beaconStore = beaconStore;
     this.ipcClient = ipcClient;
     this.lifecycleManager = lifecycleManager;
     this.remoteAccessState = remoteAccessState;
+    this.quickActionsService = quickActionsService || null;
+    this.launchDedupWindowMs = launchDedupWindowMs ?? 15_000;
+    this.recentLaunches = new Map();
   }
 
   async listInstances() {
@@ -135,26 +145,70 @@ export class HostControlService {
       throw error;
     }
 
+    const launchFingerprint = JSON.stringify({
+      title: title?.trim() || "",
+      restore_state_path: resolvedRestorePath || "",
+      restore_ref: restoreRef?.trim() || "",
+      team_mode: teamMode?.trim() || "",
+      launcher_preset: launcherPreset?.trim() || "",
+      fenrus_launcher: fenrusLauncher?.trim() || "",
+    });
+
+    const cached = this.recentLaunches.get(launchFingerprint);
+    if (cached?.promise) {
+      const launched = await cached.promise;
+      return remoteSafe ? this.toRemoteInstance(launched) : this.toLanInstance(launched);
+    }
+    if (cached?.completedAt && Date.now() - cached.completedAt <= this.launchDedupWindowMs) {
+      const existing =
+        (cached.instanceId && (await this.beaconStore.getInstanceById(cached.instanceId))) ||
+        cached.instance ||
+        null;
+      if (existing) {
+        return remoteSafe ? this.toRemoteInstance(existing) : this.toLanInstance(existing);
+      }
+      this.recentLaunches.delete(launchFingerprint);
+    }
+
     const startupProfile = this.startupProfileFromRequest({
       teamMode,
       launcherPreset,
       fenrusLauncher,
     });
+    const operation = (async () => {
+      const launched = await this.lifecycleManager.launchInstance({
+        task: title?.trim() || undefined,
+        startupTimeoutMs,
+        startupProfile,
+      });
 
-    const launched = await this.lifecycleManager.launchInstance({
-      task: title?.trim() || undefined,
-      startupTimeoutMs,
-      startupProfile,
-    });
+      if (resolvedRestorePath) {
+        await this.ipcClient.sendCommand(launched, {
+          cmd: "restore_session",
+          path: resolvedRestorePath,
+        }, { requireOk: true });
+      }
 
-    if (resolvedRestorePath) {
-      await this.ipcClient.sendCommand(launched, {
-        cmd: "restore_session",
-        path: resolvedRestorePath,
-      }, { requireOk: true });
+      return launched;
+    })();
+
+    this.recentLaunches.set(launchFingerprint, { promise: operation });
+
+    try {
+      const launched = await operation;
+      this.recentLaunches.set(launchFingerprint, {
+        completedAt: Date.now(),
+        instanceId: launched.instance_id || String(launched.pid),
+        instance: launched,
+      });
+      return remoteSafe ? this.toRemoteInstance(launched) : this.toLanInstance(launched);
+    } catch (error) {
+      const current = this.recentLaunches.get(launchFingerprint);
+      if (current?.promise === operation) {
+        this.recentLaunches.delete(launchFingerprint);
+      }
+      throw error;
     }
-
-    return remoteSafe ? this.toRemoteInstance(launched) : this.toLanInstance(launched);
   }
 
   async closeInstance(instanceId) {
@@ -168,6 +222,10 @@ export class HostControlService {
   }
 
   async sendPrompt(instanceId, prompt) {
+    const quickAction = await this.quickActionsService?.executeHookText(prompt);
+    if (quickAction) {
+      return quickAction;
+    }
     const instance = await this.requireInstance(instanceId);
     return this.ipcClient.sendCommand(instance, {
       cmd: "submit_initial_prompt",
@@ -178,6 +236,10 @@ export class HostControlService {
   }
 
   async sendFollowUp(instanceId, message) {
+    const quickAction = await this.quickActionsService?.executeHookText(message);
+    if (quickAction) {
+      return quickAction;
+    }
     const instance = await this.requireInstance(instanceId);
     return this.ipcClient.sendCommand(instance, {
       cmd: "submit_follow_up",

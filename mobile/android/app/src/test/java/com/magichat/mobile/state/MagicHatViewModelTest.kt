@@ -2,6 +2,7 @@ package com.magichat.mobile.state
 
 import com.google.common.truth.Truth.assertThat
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.BrowserPageWire
 import com.magichat.mobile.model.CliPreset
 import com.magichat.mobile.model.CliInstanceWire
 import com.magichat.mobile.model.FenrusLauncherOption
@@ -319,6 +320,28 @@ class MagicHatViewModelTest {
     }
 
     @Test
+    fun launchInstanceIgnoresSecondTapWhileFirstLaunchIsInFlight() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            instancesResult = listOf(instance("launched")),
+            restoreRefsResult = listOf(KnownRestoreRef(restoreRef = "restore-launched", title = "Launched")),
+        )
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+        viewModel.updateLaunchTitle("Open YouTube")
+
+        viewModel.launchInstance()
+        viewModel.launchInstance()
+        advanceUntilIdle()
+
+        assertThat(repository.launchInstanceCalls).hasSize(1)
+        assertThat(viewModel.uiState.value.sessionLaunchInFlight).isFalse()
+    }
+
+    @Test
     fun streamRefreshFailureDoesNotClearSelectedInstance() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository()
         repository.pairingStateFlow.value = PairingSnapshot(
@@ -446,6 +469,41 @@ class MagicHatViewModelTest {
     }
 
     @Test
+    fun launchCliIgnoresSecondTapWhileFirstLaunchIsInFlight() = runTest(dispatcher) {
+        val launched = CliInstanceWire(
+            instanceId = "cli-new",
+            preset = "codex",
+            presetLabel = "Codex CLI",
+            title = "Codex CLI",
+            command = "codex",
+            status = "running",
+        )
+        val repository = FakeMagicHatRepository(
+            cliPresetsResult = listOf(
+                CliPreset(preset = "codex", label = "Codex CLI", command = "codex"),
+            ),
+            cliInstancesResult = listOf(launched),
+        )
+        repository.launchCliInstanceResult = launched
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES)
+        advanceUntilIdle()
+
+        viewModel.launchCliInstance()
+        viewModel.launchCliInstance()
+        advanceUntilIdle()
+
+        assertThat(repository.launchCliCalls).hasSize(1)
+        assertThat(viewModel.uiState.value.cliLaunchInFlight).isFalse()
+    }
+
+    @Test
     fun navigateToCliRefreshesHostPresenceBeforeLoading() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository(
             cliPresetsResult = listOf(
@@ -475,6 +533,75 @@ class MagicHatViewModelTest {
         assertThat(repository.refreshActiveHostCalls).isEqualTo(1)
         assertThat(state.activeHostPresence).isEqualTo("online")
         assertThat(state.cliPresets.map { it.preset }).containsExactly("claude")
+    }
+
+    @Test
+    fun navigateToBrowserLoadsPagesAndKeepsSelectedPage() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            browserPagesResult = listOf(
+                BrowserPageWire(
+                    pageId = "page_1",
+                    url = "https://example.com",
+                    title = "Example Domain",
+                    selected = true,
+                ),
+            ),
+        )
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.navigateTo(MagicHatScreen.BROWSER)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(state.screen).isEqualTo(MagicHatScreen.BROWSER)
+        assertThat(repository.listBrowserPagesCalls).isEqualTo(1)
+        assertThat(state.browserPages.map { it.pageId }).containsExactly("page_1")
+        assertThat(state.browserSelectedPageId).isEqualTo("page_1")
+    }
+
+    @Test
+    fun browserActionsForwardToRepositoryAndRefreshPages() = runTest(dispatcher) {
+        val repository = FakeMagicHatRepository(
+            browserPagesResult = listOf(
+                BrowserPageWire(
+                    pageId = "page_2",
+                    url = "https://www.youtube.com/results?search_query=lofi",
+                    title = "YouTube",
+                    selected = true,
+                ),
+            ),
+        )
+        repository.pairingStateFlow.value = PairingSnapshot(
+            pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
+            activeHostId = "alpha",
+        )
+        val viewModel = MagicHatViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.navigateTo(MagicHatScreen.BROWSER)
+        advanceUntilIdle()
+        viewModel.updateBrowserUrl("youtube.com")
+        viewModel.openBrowserUrl()
+        advanceUntilIdle()
+        viewModel.updateBrowserSearch("lofi")
+        viewModel.updateBrowserSearchEngine("youtube")
+        viewModel.searchInBrowser()
+        advanceUntilIdle()
+        viewModel.selectBrowserPage("page_2")
+        advanceUntilIdle()
+
+        assertThat(repository.openBrowserUrlCalls).containsExactly("youtube.com")
+        assertThat(repository.searchInBrowserCalls).containsExactly(BrowserSearchInvocation("lofi", "youtube"))
+        assertThat(repository.selectBrowserPageCalls).containsExactly("page_2")
+        val state = viewModel.uiState.value
+        assertThat(state.browserUrlInput).isEmpty()
+        assertThat(state.browserSearchInput).isEmpty()
+        assertThat(state.browserSelectedPageId).isEqualTo("page_2")
     }
 
     private fun pairedHost(
@@ -514,6 +641,7 @@ private class FakeMagicHatRepository(
     var restoreRefsResult: List<KnownRestoreRef> = emptyList(),
     var cliPresetsResult: List<CliPreset> = emptyList(),
     var cliInstancesResult: List<com.magichat.mobile.model.CliInstanceWire> = emptyList(),
+    var browserPagesResult: List<BrowserPageWire> = emptyList(),
 ) : MagicHatRepositoryContract {
     val launchInstanceCalls = mutableListOf<LaunchInvocation>()
     val pairRemoteCalls = mutableListOf<RemotePairInvocation>()
@@ -526,9 +654,13 @@ private class FakeMagicHatRepository(
     var listRestoreRefsCalls = 0
     var listCliPresetsCalls = 0
     var listCliInstancesCalls = 0
+    var listBrowserPagesCalls = 0
     var refreshActiveHostCalls = 0
     var stopInstanceEventsCalls = 0
     val launchCliCalls = mutableListOf<CliLaunchInvocation>()
+    val openBrowserUrlCalls = mutableListOf<String>()
+    val searchInBrowserCalls = mutableListOf<BrowserSearchInvocation>()
+    val selectBrowserPageCalls = mutableListOf<String>()
     var launchInstanceResult: InstanceDetail = InstanceDetail(instance = instance("launched"))
     var launchCliInstanceResult: com.magichat.mobile.model.CliInstanceWire = CliInstanceWire(
         instanceId = "cli-launched",
@@ -669,6 +801,26 @@ private class FakeMagicHatRepository(
 
     override suspend fun sendCliPrompt(instanceId: String, prompt: String) = Unit
 
+    override suspend fun listBrowserPages(): List<BrowserPageWire> {
+        listBrowserPagesCalls += 1
+        return browserPagesResult
+    }
+
+    override suspend fun openBrowserUrl(url: String): SubmissionReceipt {
+        openBrowserUrlCalls += url
+        return SubmissionReceipt(status = "ok")
+    }
+
+    override suspend fun searchInBrowser(query: String, engine: String?): SubmissionReceipt {
+        searchInBrowserCalls += BrowserSearchInvocation(query, engine)
+        return SubmissionReceipt(status = "ok")
+    }
+
+    override suspend fun selectBrowserPage(pageId: String): SubmissionReceipt {
+        selectBrowserPageCalls += pageId
+        return SubmissionReceipt(status = "ok")
+    }
+
     override fun observeCliInstanceEvents(
         instanceId: String,
         onEvent: (com.magichat.mobile.model.CliEvent) -> Unit,
@@ -725,4 +877,9 @@ private data class CliLaunchInvocation(
     val preset: String,
     val title: String?,
     val initialPrompt: String,
+)
+
+private data class BrowserSearchInvocation(
+    val query: String,
+    val engine: String?,
 )

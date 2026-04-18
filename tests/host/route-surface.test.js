@@ -77,4 +77,46 @@ describe("contract route surface", () => {
     expect(sendCommand.mock.calls.find((call) => call[1].cmd === "close_instance")).toBeTruthy();
     expect(closeInstance).toHaveBeenCalledTimes(1);
   });
+
+  it("deduplicates repeated identical launch requests within the short retry window", async () => {
+    const launchInstance = vi.fn(async () =>
+      buildBeaconEntry({
+        pid: 999,
+        instance_id: "wizard_team_app_999_2000",
+        started_at: Date.now(),
+      }),
+    );
+
+    const ctx = await createRuntime({
+      beaconEntries: [],
+      processProbe: vi.fn(() => true),
+      ipcClient: {
+        inspect: vi.fn(async () => ({ status: "ok", snapshot: { phase: "running" } })),
+        sendCommand: vi.fn(async () => ({ status: "ok" })),
+        tailEvents: vi.fn(async () => ({ source: "events", events: [], next_cursor: 0 })),
+      },
+      lifecycleManager: {
+        launchInstance,
+        closeInstance: vi.fn(async () => ({ closed: true })),
+      },
+    });
+    contexts.push(ctx);
+
+    const token = await pairDevice(ctx);
+    const requestBody = {
+      title: "open youtube",
+      team_mode: "full",
+      launcher_preset: "codex",
+      fenrus_launcher: "default",
+    };
+
+    const first = await ctx.http.post("/v1/instances", { token, body: requestBody });
+    const second = await ctx.http.post("/v1/instances", { token, body: requestBody });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.instance_id).toBe("wizard_team_app_999_2000");
+    expect(second.body.instance_id).toBe("wizard_team_app_999_2000");
+    expect(launchInstance).toHaveBeenCalledTimes(1);
+  });
 });

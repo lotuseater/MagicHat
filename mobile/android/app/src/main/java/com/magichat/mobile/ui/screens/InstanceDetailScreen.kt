@@ -213,6 +213,11 @@ private fun PromptActionsCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Actions", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Fast host hooks: /host open <url>, /host search [google|bing|ddg|youtube] <query>, /host app <command> [args...], /host browser open|search|click|click-selector|fill|snapshot ...",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             OutlinedTextField(
                 value = state.promptInput,
                 onValueChange = onPromptChanged,

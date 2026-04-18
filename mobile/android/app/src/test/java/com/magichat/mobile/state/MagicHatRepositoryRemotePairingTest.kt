@@ -1,7 +1,10 @@
 package com.magichat.mobile.state
 
 import com.google.common.truth.Truth.assertThat
+import com.magichat.mobile.model.FenrusLauncherOption
+import com.magichat.mobile.model.LauncherPresetOption
 import com.magichat.mobile.model.PairedHostRecord
+import com.magichat.mobile.model.TeamModeOption
 import com.magichat.mobile.network.MagicHatApiFactory
 import com.magichat.mobile.security.DeviceIdentity
 import com.magichat.mobile.security.DeviceKeyStoreContract
@@ -146,6 +149,77 @@ class MagicHatRepositoryRemotePairingTest {
 
         assertThat(error).isInstanceOf(IllegalStateException::class.java)
         assertThat(error?.message).isEqualTo("This pairing QR was already used. Generate a fresh QR on the host.")
+    }
+
+    @Test
+    fun launchInstanceDoesNotRetryTransientRemoteFailure() = runBlocking {
+        var launchCalls = 0
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when {
+                    request.method == "POST" && request.path == "/v2/mobile/hosts/host_123/instances" -> {
+                        launchCalls += 1
+                        MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)
+                    }
+
+                    request.method == "POST" && request.path == "/v2/mobile/session/refresh" -> {
+                        MockResponse()
+                            .setResponseCode(200)
+                            .setBody(
+                                """
+                                {
+                                  "access_token": "at_refreshed",
+                                  "access_token_expires_at": "2026-04-18T02:00:00Z",
+                                  "refresh_token": "rt_refreshed",
+                                  "refresh_token_expires_at": "2026-05-18T02:00:00Z",
+                                  "certificate_pinset_version": "dev-insecure"
+                                }
+                                """.trimIndent(),
+                            )
+                    }
+
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+
+        val store = InMemoryPairingStore()
+        store.upsert(
+            PairedHostRecord(
+                hostId = "host_123",
+                displayName = "Dev Box",
+                baseUrl = "http://127.0.0.1:18765/",
+                sessionToken = "at_123",
+                pairedAt = "2026-04-18T01:00:00Z",
+                mode = "remote_relay",
+                relayUrl = server.url("/").toString().trimEnd('/'),
+                deviceId = "device_123",
+                refreshToken = "rt_123",
+                accessTokenExpiresAt = "2026-04-18T02:00:00Z",
+                refreshTokenExpiresAt = "2026-05-18T02:00:00Z",
+                certificatePinsetVersion = "dev-insecure",
+                lastKnownHostPresence = "online",
+            ),
+        )
+
+        val repository = MagicHatRepository(
+            pairingStore = store,
+            deviceKeyStore = InMemoryDeviceKeyStore(),
+            apiFactory = MagicHatApiFactory(),
+        )
+
+        val error = runCatching {
+            repository.launchInstance(
+                title = "Open YouTube",
+                teamMode = TeamModeOption.APP_DEFAULT,
+                launcherPreset = LauncherPresetOption.APP_DEFAULT,
+                fenrusLauncher = FenrusLauncherOption.APP_DEFAULT,
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isNotNull()
+        assertThat(launchCalls).isEqualTo(1)
     }
 
     private fun pairUri(relayBaseUrl: String): String {

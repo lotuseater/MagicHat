@@ -811,6 +811,38 @@ export async function createRelayRuntime(options = {}) {
   );
 
   app.get(
+    "/v2/mobile/hosts/:hostId/browser/pages",
+    asyncRoute(async (req, res) => {
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "list_browser_pages",
+        params: {},
+      });
+      res.json(result.result);
+    }),
+  );
+
+  app.post(
+    "/v2/mobile/hosts/:hostId/browser/actions",
+    asyncRoute(async (req, res) => {
+      if (!commandLimiter.check(req.auth.device_id)) {
+        res.status(429).json({ error: "rate_limited" });
+        return;
+      }
+      const result = await dispatchCommandToHost(req.params.hostId, {
+        kind: "execute_browser_action",
+        params: {
+          kind: `${req.body?.kind || ""}`.trim(),
+          url: `${req.body?.url || ""}`.trim() || null,
+          query: `${req.body?.query || ""}`.trim() || null,
+          engine: `${req.body?.engine || ""}`.trim() || null,
+          page_id: `${req.body?.page_id || ""}`.trim() || null,
+        },
+      });
+      res.status(202).json(result.result);
+    }),
+  );
+
+  app.get(
     "/v2/mobile/hosts/:hostId/instances/:instanceId/updates",
     asyncRoute(async (req, res) => {
       const subscriptionId = randomId("sub");

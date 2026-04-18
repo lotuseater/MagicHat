@@ -215,7 +215,7 @@ private fun SessionComposerCard(
                 label = { Text("Initial prompt") },
                 placeholder = { Text("Describe the task for the team") },
                 minLines = 3,
-                enabled = canRunCommands && state.isLoading.not(),
+                enabled = canRunCommands && state.isLoading.not() && state.sessionLaunchInFlight.not(),
             )
 
             LaunchOptionSelector(
@@ -223,7 +223,7 @@ private fun SessionComposerCard(
                 options = TeamModeOption.entries,
                 selected = state.launchTeamMode,
                 optionLabel = { it.label },
-                enabled = canRunCommands && state.isLoading.not(),
+                enabled = canRunCommands && state.isLoading.not() && state.sessionLaunchInFlight.not(),
                 onSelected = onLaunchTeamModeChanged,
             )
 
@@ -232,7 +232,7 @@ private fun SessionComposerCard(
                 options = LauncherPresetOption.entries,
                 selected = state.launchLauncherPreset,
                 optionLabel = { it.label },
-                enabled = canRunCommands && state.isLoading.not(),
+                enabled = canRunCommands && state.isLoading.not() && state.sessionLaunchInFlight.not(),
                 onSelected = onLaunchLauncherPresetChanged,
             )
 
@@ -247,9 +247,11 @@ private fun SessionComposerCard(
 
             Button(
                 onClick = onLaunchInstance,
-                enabled = canRunCommands && state.isLoading.not() && hasInitialPrompt,
+                enabled = canRunCommands && state.isLoading.not()
+                    && state.sessionLaunchInFlight.not()
+                    && hasInitialPrompt,
             ) {
-                Text("Start Session")
+                Text(if (state.sessionLaunchInFlight) "Starting..." else "Start Session")
             }
             if (!canRunCommands) {
                 Text(

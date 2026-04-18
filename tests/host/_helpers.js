@@ -56,6 +56,8 @@ export async function createRuntime(options = {}) {
     processController: options.processController,
     lanGuardOptions: options.lanGuardOptions,
     cliInstancesManager: options.cliInstancesManager,
+    browserControlService: options.browserControlService,
+    quickActionsService: options.quickActionsService,
   });
 
   const server = await new Promise((resolve, reject) => {

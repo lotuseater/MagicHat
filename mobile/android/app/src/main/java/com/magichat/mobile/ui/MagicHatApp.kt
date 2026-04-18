@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.magichat.mobile.state.MagicHatScreen
 import com.magichat.mobile.state.MagicHatViewModel
 import com.magichat.mobile.ui.screens.CliInstancesScreen
+import com.magichat.mobile.ui.screens.BrowserScreen
 import com.magichat.mobile.ui.screens.InstanceDetailScreen
 import com.magichat.mobile.ui.screens.InstancesScreen
 import com.magichat.mobile.ui.screens.PairingScreen
@@ -60,6 +62,7 @@ fun MagicHatApp(
                             MagicHatScreen.INSTANCES -> "Sessions"
                             MagicHatScreen.INSTANCE_DETAIL -> "Session"
                             MagicHatScreen.CLI_INSTANCES -> "CLI"
+                            MagicHatScreen.BROWSER -> "Browser"
                         },
                     )
                 },
@@ -98,6 +101,12 @@ fun MagicHatApp(
                     onClick = { viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES) },
                     icon = { Icon(Icons.Outlined.Code, contentDescription = null) },
                     label = { Text("CLI") },
+                )
+                NavigationBarItem(
+                    selected = uiState.screen == MagicHatScreen.BROWSER,
+                    onClick = { viewModel.navigateTo(MagicHatScreen.BROWSER) },
+                    icon = { Icon(Icons.Outlined.Language, contentDescription = null) },
+                    label = { Text("Browser") },
                 )
             }
         },
@@ -179,6 +188,18 @@ fun MagicHatApp(
                     onClose = viewModel::closeCliInstance,
                     onRefresh = viewModel::refreshCliPanel,
                     onSilentRefresh = viewModel::refreshCliPanelQuietly,
+                    onRefreshActiveHost = viewModel::refreshActiveHostStatus,
+                )
+
+                MagicHatScreen.BROWSER -> BrowserScreen(
+                    state = uiState,
+                    onBrowserUrlChanged = viewModel::updateBrowserUrl,
+                    onBrowserSearchChanged = viewModel::updateBrowserSearch,
+                    onBrowserSearchEngineChanged = viewModel::updateBrowserSearchEngine,
+                    onOpenBrowserUrl = viewModel::openBrowserUrl,
+                    onSearchInBrowser = viewModel::searchInBrowser,
+                    onSelectPage = viewModel::selectBrowserPage,
+                    onRefresh = viewModel::refreshBrowserPanel,
                     onRefreshActiveHost = viewModel::refreshActiveHostStatus,
                 )
             }

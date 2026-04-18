@@ -5,6 +5,8 @@ import com.magichat.mobile.model.CliInstancesResponse
 import com.magichat.mobile.model.CliLaunchRequest
 import com.magichat.mobile.model.CliPresetsResponse
 import com.magichat.mobile.model.CliPromptRequest
+import com.magichat.mobile.model.BrowserActionRequest
+import com.magichat.mobile.model.BrowserPagesResponse
 import com.magichat.mobile.model.FollowUpRequest
 import com.magichat.mobile.model.HealthzResponse
 import com.magichat.mobile.model.HostInfoResponse
@@ -99,5 +101,13 @@ interface MagicHatApiService {
     suspend fun sendCliPrompt(
         @Path("instanceId") instanceId: String,
         @Body request: CliPromptRequest,
+    ): SubmissionReceipt
+
+    @GET("v1/browser/pages")
+    suspend fun listBrowserPages(): BrowserPagesResponse
+
+    @POST("v1/browser/actions")
+    suspend fun runBrowserAction(
+        @Body request: BrowserActionRequest,
     ): SubmissionReceipt
 }

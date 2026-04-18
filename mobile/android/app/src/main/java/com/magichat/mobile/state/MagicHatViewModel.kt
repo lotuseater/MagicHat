@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.BrowserPageWire
 import com.magichat.mobile.model.CliEvent
 import com.magichat.mobile.model.CliInstanceWire
 import com.magichat.mobile.model.CliPreset
@@ -31,6 +32,7 @@ enum class MagicHatScreen {
     INSTANCES,
     INSTANCE_DETAIL,
     CLI_INSTANCES,
+    BROWSER,
 }
 
 data class MagicHatUiState(
@@ -65,6 +67,13 @@ data class MagicHatUiState(
     val cliFollowUpInput: String = "",
     val cliSelectedInstanceId: String? = null,
     val cliStreamStatus: String = "idle",
+    val browserUrlInput: String = "",
+    val browserSearchInput: String = "",
+    val browserSearchEngine: String = "google",
+    val browserPages: List<BrowserPageWire> = emptyList(),
+    val browserSelectedPageId: String? = null,
+    val sessionLaunchInFlight: Boolean = false,
+    val cliLaunchInFlight: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
 )
@@ -194,7 +203,63 @@ class MagicHatViewModel(
                 }
             }
 
+            MagicHatScreen.BROWSER -> {
+                launchAction {
+                    repository.refreshActiveHost()
+                    refreshBrowserPages()
+                }
+            }
+
             MagicHatScreen.PAIRED_PC_SELECTION -> Unit
+        }
+    }
+
+    fun updateBrowserUrl(value: String) {
+        _uiState.update { it.copy(browserUrlInput = value) }
+    }
+
+    fun updateBrowserSearch(value: String) {
+        _uiState.update { it.copy(browserSearchInput = value) }
+    }
+
+    fun updateBrowserSearchEngine(value: String) {
+        _uiState.update { it.copy(browserSearchEngine = value) }
+    }
+
+    fun refreshBrowserPanel() {
+        launchAction {
+            refreshBrowserPages()
+        }
+    }
+
+    fun openBrowserUrl() {
+        launchAction {
+            val url = _uiState.value.browserUrlInput.trim()
+            if (url.isBlank()) {
+                error("Browser URL is required")
+            }
+            repository.openBrowserUrl(url)
+            _uiState.update { it.copy(browserUrlInput = "") }
+            refreshBrowserPages()
+        }
+    }
+
+    fun searchInBrowser() {
+        launchAction {
+            val query = _uiState.value.browserSearchInput.trim()
+            if (query.isBlank()) {
+                error("Browser search query is required")
+            }
+            repository.searchInBrowser(query, _uiState.value.browserSearchEngine)
+            _uiState.update { it.copy(browserSearchInput = "") }
+            refreshBrowserPages()
+        }
+    }
+
+    fun selectBrowserPage(pageId: String) {
+        launchAction {
+            repository.selectBrowserPage(pageId)
+            refreshBrowserPages()
         }
     }
 
@@ -273,27 +338,38 @@ class MagicHatViewModel(
     }
 
     fun launchCliInstance() {
-        launchAction {
+        if (_uiState.value.cliLaunchInFlight) {
+            return
+        }
+        _uiState.update { it.copy(cliLaunchInFlight = true, errorMessage = null) }
+        viewModelScope.launch {
             val state = _uiState.value
-            val preset = state.cliSelectedPreset
-            val prompt = state.cliLaunchPromptInput
-            val launched = repository.launchCliInstance(
-                preset = preset,
-                title = prompt.takeIf { it.isNotBlank() }?.take(48),
-                initialPrompt = prompt,
-            )
-            _uiState.update {
-                val updatedInstances = listOf(launched) + it.cliInstances.filterNot { existing ->
-                    existing.instanceId == launched.instanceId
-                }
-                it.copy(
-                    cliLaunchPromptInput = "",
-                    cliSelectedInstanceId = launched.instanceId,
-                    cliInstances = updatedInstances,
+            runCatching {
+                val preset = state.cliSelectedPreset
+                val prompt = state.cliLaunchPromptInput
+                val launched = repository.launchCliInstance(
+                    preset = preset,
+                    title = prompt.takeIf { it.isNotBlank() }?.take(48),
+                    initialPrompt = prompt,
                 )
+                _uiState.update {
+                    val updatedInstances = listOf(launched) + it.cliInstances.filterNot { existing ->
+                        existing.instanceId == launched.instanceId
+                    }
+                    it.copy(
+                        cliLaunchPromptInput = "",
+                        cliSelectedInstanceId = launched.instanceId,
+                        cliInstances = updatedInstances,
+                    )
+                }
+                refreshCliInstances(loadPresetsIfMissing = false)
+                subscribeToCliInstance(launched.instanceId)
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(errorMessage = throwable.message ?: "Unknown error")
+                }
             }
-            refreshCliInstances(loadPresetsIfMissing = false)
-            subscribeToCliInstance(launched.instanceId)
+            _uiState.update { it.copy(cliLaunchInFlight = false) }
         }
     }
 
@@ -437,34 +513,45 @@ class MagicHatViewModel(
     }
 
     fun launchInstance() {
-        launchAction {
+        if (_uiState.value.sessionLaunchInFlight) {
+            return
+        }
+        _uiState.update { it.copy(sessionLaunchInFlight = true, errorMessage = null) }
+        viewModelScope.launch {
             val state = _uiState.value
-            if (state.launchTitleInput.isBlank()) {
-                error("Initial prompt is required to start a remote session")
-            }
-            val detail = repository.launchInstance(
-                title = state.launchTitleInput,
-                teamMode = state.launchTeamMode,
-                launcherPreset = state.launchLauncherPreset,
-                fenrusLauncher = state.launchFenrusLauncher,
-            )
-            val instances = repository.listInstances()
-            val restoreRefs = repository.listKnownRestoreRefs()
-            _uiState.update {
-                it.copy(
-                    instances = instances,
-                    knownRestoreRefs = restoreRefs,
-                    selectedInstanceId = detail.instance.instanceId,
-                    selectedDetail = detail,
-                    selectedTerminalAgent = preferredTerminalAgent(detail, it.selectedTerminalAgent),
-                    screen = MagicHatScreen.INSTANCE_DETAIL,
-                    launchTitleInput = "",
-                    launchTeamMode = TeamModeOption.APP_DEFAULT,
-                    launchLauncherPreset = LauncherPresetOption.APP_DEFAULT,
-                    launchFenrusLauncher = FenrusLauncherOption.APP_DEFAULT,
+            runCatching {
+                if (state.launchTitleInput.isBlank()) {
+                    error("Initial prompt is required to start a remote session")
+                }
+                val detail = repository.launchInstance(
+                    title = state.launchTitleInput,
+                    teamMode = state.launchTeamMode,
+                    launcherPreset = state.launchLauncherPreset,
+                    fenrusLauncher = state.launchFenrusLauncher,
                 )
+                val instances = repository.listInstances()
+                val restoreRefs = repository.listKnownRestoreRefs()
+                _uiState.update {
+                    it.copy(
+                        instances = instances,
+                        knownRestoreRefs = restoreRefs,
+                        selectedInstanceId = detail.instance.instanceId,
+                        selectedDetail = detail,
+                        selectedTerminalAgent = preferredTerminalAgent(detail, it.selectedTerminalAgent),
+                        screen = MagicHatScreen.INSTANCE_DETAIL,
+                        launchTitleInput = "",
+                        launchTeamMode = TeamModeOption.APP_DEFAULT,
+                        launchLauncherPreset = LauncherPresetOption.APP_DEFAULT,
+                        launchFenrusLauncher = FenrusLauncherOption.APP_DEFAULT,
+                    )
+                }
+                subscribeToInstance(detail.instance.instanceId)
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(errorMessage = throwable.message ?: "Unknown error")
+                }
             }
-            subscribeToInstance(detail.instance.instanceId)
+            _uiState.update { it.copy(sessionLaunchInFlight = false) }
         }
     }
 
@@ -688,6 +775,28 @@ class MagicHatViewModel(
                 cliPresets = emptyList(),
                 cliSelectedInstanceId = null,
                 cliStreamStatus = "idle",
+                browserUrlInput = "",
+                browserSearchInput = "",
+                browserPages = emptyList(),
+                browserSelectedPageId = null,
+            )
+        }
+    }
+
+    private suspend fun refreshBrowserPages() {
+        if (repository.activeHost() == null) {
+            _uiState.update {
+                it.copy(browserPages = emptyList(), browserSelectedPageId = null)
+            }
+            return
+        }
+        val pages = repository.listBrowserPages()
+        _uiState.update { state ->
+            val selectedPageId = pages.firstOrNull { it.selected }?.pageId
+                ?: state.browserSelectedPageId?.takeIf { candidate -> pages.any { it.pageId == candidate } }
+            state.copy(
+                browserPages = pages,
+                browserSelectedPageId = selectedPageId,
             )
         }
     }

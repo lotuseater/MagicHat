@@ -386,3 +386,22 @@ data class CliEvent(
     val source: String? = null,
     val chunk: String? = null,
 )
+
+data class BrowserPageWire(
+    @Json(name = "page_id") val pageId: String,
+    val url: String,
+    val title: String? = null,
+    val selected: Boolean = false,
+)
+
+data class BrowserPagesResponse(
+    val pages: List<BrowserPageWire>,
+)
+
+data class BrowserActionRequest(
+    val kind: String,
+    val url: String? = null,
+    val query: String? = null,
+    val engine: String? = null,
+    @Json(name = "page_id") val pageId: String? = null,
+)

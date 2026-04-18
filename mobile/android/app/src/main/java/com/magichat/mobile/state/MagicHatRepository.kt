@@ -1,6 +1,8 @@
 package com.magichat.mobile.state
 
 import com.magichat.mobile.model.BeaconHost
+import com.magichat.mobile.model.BrowserActionRequest
+import com.magichat.mobile.model.BrowserPageWire
 import com.magichat.mobile.model.CliEvent
 import com.magichat.mobile.model.CliInstanceWire
 import com.magichat.mobile.model.CliLaunchRequest
@@ -77,6 +79,10 @@ interface MagicHatRepositoryContract {
     ): CliInstanceWire
     suspend fun closeCliInstance(instanceId: String)
     suspend fun sendCliPrompt(instanceId: String, prompt: String)
+    suspend fun listBrowserPages(): List<BrowserPageWire>
+    suspend fun openBrowserUrl(url: String): SubmissionReceipt
+    suspend fun searchInBrowser(query: String, engine: String? = null): SubmissionReceipt
+    suspend fun selectBrowserPage(pageId: String): SubmissionReceipt
 
     fun observeInstanceEvents(
         instanceId: String,
@@ -334,14 +340,14 @@ class MagicHatRepository(
             fenrusLauncher = fenrusLauncher.wireValue.takeUnless { it.isBlank() },
         )
         val launched = if (isRemote(context.record)) {
-            withTransportRetry {
+            singleAttempt {
                 relayApiFor(context.record).launchInstance(
                     context.record.hostId,
                     request,
                 )
             }
         } else {
-            withTransportRetry {
+            singleAttempt {
                 lanApiFor(context.record).launchInstance(
                     request,
                 )
@@ -353,11 +359,11 @@ class MagicHatRepository(
     override suspend fun closeInstance(instanceId: String) {
         val context = requireActiveContext()
         if (isRemote(context.record)) {
-            withTransportRetry {
+            singleAttempt {
                 relayApiFor(context.record).closeInstance(context.record.hostId, instanceId)
             }
         } else {
-            withTransportRetry {
+            singleAttempt {
                 lanApiFor(context.record).closeInstance(instanceId)
             }
         }
@@ -366,7 +372,7 @@ class MagicHatRepository(
     override suspend fun sendPrompt(instanceId: String, prompt: String): SubmissionReceipt {
         val context = requireActiveContext()
         return if (isRemote(context.record)) {
-            withTransportRetry {
+            singleAttempt {
                 relayApiFor(context.record).sendPrompt(
                     context.record.hostId,
                     instanceId,
@@ -374,7 +380,7 @@ class MagicHatRepository(
                 )
             }
         } else {
-            withTransportRetry {
+            singleAttempt {
                 lanApiFor(context.record).sendPrompt(instanceId, PromptRequest(prompt = prompt))
             }
         }
@@ -383,7 +389,7 @@ class MagicHatRepository(
     override suspend fun sendFollowUp(instanceId: String, followUp: String): SubmissionReceipt {
         val context = requireActiveContext()
         return if (isRemote(context.record)) {
-            withTransportRetry {
+            singleAttempt {
                 relayApiFor(context.record).sendFollowUp(
                     context.record.hostId,
                     instanceId,
@@ -391,7 +397,7 @@ class MagicHatRepository(
                 )
             }
         } else {
-            withTransportRetry {
+            singleAttempt {
                 lanApiFor(context.record).sendFollowUp(instanceId, FollowUpRequest(message = followUp))
             }
         }
@@ -400,7 +406,7 @@ class MagicHatRepository(
     override suspend fun answerTrustPrompt(instanceId: String, approved: Boolean): SubmissionReceipt {
         val context = requireActiveContext()
         return if (isRemote(context.record)) {
-            withTransportRetry {
+            singleAttempt {
                 relayApiFor(context.record).answerTrustPrompt(
                     context.record.hostId,
                     instanceId,
@@ -408,7 +414,7 @@ class MagicHatRepository(
                 )
             }
         } else {
-            withTransportRetry {
+            singleAttempt {
                 lanApiFor(context.record).answerTrustPrompt(
                     instanceId,
                     TrustRequest(approved = approved),
@@ -425,14 +431,14 @@ class MagicHatRepository(
             allowRawPathFallback = !isRemote(context.record),
         )
         val launched = if (isRemote(context.record)) {
-            withTransportRetry {
+            singleAttempt {
                 relayApiFor(context.record).launchInstance(
                     context.record.hostId,
                     launchRequest,
                 )
             }
         } else {
-            withTransportRetry {
+            singleAttempt {
                 lanApiFor(context.record).launchInstance(
                     launchRequest,
                 )
@@ -485,7 +491,7 @@ class MagicHatRepository(
             title = title?.trim().takeUnless { it.isNullOrBlank() },
             initialPrompt = initialPrompt?.trim().takeUnless { it.isNullOrBlank() },
         )
-        return withTransportRetry {
+        return singleAttempt {
             if (isRemote(context.record)) {
                 relayApiFor(context.record).launchCliInstance(context.record.hostId, request)
             } else {
@@ -496,7 +502,7 @@ class MagicHatRepository(
 
     override suspend fun closeCliInstance(instanceId: String) {
         val context = requireActiveContext()
-        withTransportRetry {
+        singleAttempt {
             if (isRemote(context.record)) {
                 relayApiFor(context.record).closeCliInstance(context.record.hostId, instanceId)
             } else {
@@ -507,7 +513,7 @@ class MagicHatRepository(
 
     override suspend fun sendCliPrompt(instanceId: String, prompt: String) {
         val context = requireActiveContext()
-        withTransportRetry {
+        singleAttempt {
             if (isRemote(context.record)) {
                 relayApiFor(context.record).sendCliPrompt(
                     context.record.hostId,
@@ -516,6 +522,65 @@ class MagicHatRepository(
                 )
             } else {
                 lanApiFor(context.record).sendCliPrompt(instanceId, CliPromptRequest(prompt = prompt))
+            }
+        }
+    }
+
+    override suspend fun listBrowserPages(): List<BrowserPageWire> {
+        val context = requireActiveContext()
+        return withTransportRetry {
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).listBrowserPages(context.record.hostId).pages
+            } else {
+                lanApiFor(context.record).listBrowserPages().pages
+            }
+        }
+    }
+
+    override suspend fun openBrowserUrl(url: String): SubmissionReceipt {
+        val context = requireActiveContext()
+        return singleAttempt {
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).runBrowserAction(
+                    context.record.hostId,
+                    BrowserActionRequest(kind = "browser_open", url = url),
+                )
+            } else {
+                lanApiFor(context.record).runBrowserAction(
+                    BrowserActionRequest(kind = "browser_open", url = url),
+                )
+            }
+        }
+    }
+
+    override suspend fun searchInBrowser(query: String, engine: String?): SubmissionReceipt {
+        val context = requireActiveContext()
+        return singleAttempt {
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).runBrowserAction(
+                    context.record.hostId,
+                    BrowserActionRequest(kind = "browser_search", query = query, engine = engine),
+                )
+            } else {
+                lanApiFor(context.record).runBrowserAction(
+                    BrowserActionRequest(kind = "browser_search", query = query, engine = engine),
+                )
+            }
+        }
+    }
+
+    override suspend fun selectBrowserPage(pageId: String): SubmissionReceipt {
+        val context = requireActiveContext()
+        return singleAttempt {
+            if (isRemote(context.record)) {
+                relayApiFor(context.record).runBrowserAction(
+                    context.record.hostId,
+                    BrowserActionRequest(kind = "browser_select_page", pageId = pageId),
+                )
+            } else {
+                lanApiFor(context.record).runBrowserAction(
+                    BrowserActionRequest(kind = "browser_select_page", pageId = pageId),
+                )
             }
         }
     }
@@ -682,6 +747,8 @@ class MagicHatRepository(
             }
         }
     }
+
+    private suspend fun <T> singleAttempt(block: suspend () -> T): T = block()
 
     private fun toUserFacingRemotePairError(throwable: Throwable): Throwable {
         if (throwable !is HttpException) {

@@ -871,4 +871,129 @@ describe("remote relay integration", () => {
 
     await reader.cancel();
   });
+
+  it("forwards remote browser page list/open/search/select commands", async () => {
+    const workspace = await createWorkspace();
+    const relayRoot = await fs.mkdtemp(path.join(os.tmpdir(), "magichat-relay-test-"));
+    const relay = await startRelayServer({
+      config: {
+        listenHost: "127.0.0.1",
+        port: 0,
+        allowInsecureHttp: true,
+        database: {
+          kind: "sqlite",
+          sqlitePath: path.join(relayRoot, "relay.sqlite"),
+        },
+        accessTokenTtlMs: 15 * 60 * 1000,
+        refreshTokenTtlMs: 30 * 24 * 60 * 60 * 1000,
+        bootstrapTokenTtlMs: 10 * 60 * 1000,
+        heartbeatTimeoutMs: 60 * 1000,
+        requestTimeoutMs: 5000,
+        rateLimitWindowMs: 60 * 1000,
+        bootstrapClaimLimit: 20,
+        refreshLimit: 60,
+        commandLimit: 120,
+      },
+    });
+    cleanups.push(async () => {
+      await relay.close();
+      await fs.rm(relayRoot, { recursive: true, force: true });
+    });
+    const relayPort = relay.server.address().port;
+
+    const browserControlService = {
+      listPages: vi.fn(async () => [
+        { page_id: "page_1", url: "https://example.com", title: "Example", selected: true },
+      ]),
+      openUrl: vi.fn(async (url, options) => ({ status: "ok", page_id: "page_2", url, ...options })),
+      search: vi.fn(async (query, engine) => ({ status: "ok", page_id: "page_3", query, engine })),
+      selectPage: vi.fn(async (pageId) => ({ status: "selected", page_id: pageId })),
+    };
+
+    const host = await startHostServer({
+      allowNonWindows: true,
+      config: {
+        ...workspace.config,
+        listenHost: "127.0.0.1",
+        port: 0,
+        remote: {
+          enabled: true,
+          relayUrl: `http://127.0.0.1:${relayPort}`,
+          allowInsecureRelay: true,
+          remoteStatePath: path.join(workspace.root, "remote_state.json"),
+          bootstrapTtlMs: 10 * 60 * 1000,
+        },
+      },
+      processProbe: vi.fn(() => true),
+      ipcClient: {
+        inspect: vi.fn(async () => ({ status: "ok" })),
+        sendCommand: vi.fn(async () => ({ status: "ok" })),
+        tailEvents: vi.fn(async () => ({ source: "events", events: [], next_cursor: 0 })),
+      },
+      lifecycleManager: {
+        launchInstance: vi.fn(async () => buildBeaconEntry({ pid: 999 })),
+        closeInstance: vi.fn(async () => ({ status: "queued" })),
+      },
+      browserControlService,
+    });
+    cleanups.push(async () => {
+      await host.close();
+      await fs.rm(workspace.root, { recursive: true, force: true });
+    });
+    const hostBaseUrl = `http://127.0.0.1:${host.server.address().port}`;
+
+    await waitFor(async () => {
+      const status = await requestJson("GET", `${hostBaseUrl}/admin/v2/remote/status`);
+      return status.body?.relay?.connected ? status.body : null;
+    });
+
+    const { registration } = await pairRemoteDevice({
+      relayPort,
+      hostBaseUrl,
+      deviceName: "Browser Remote Phone",
+    });
+    const accessToken = registration.body.access_token;
+    const hostId = registration.body.host_id;
+
+    const pages = await requestJson(
+      "GET",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/browser/pages`,
+      { token: accessToken },
+    );
+    expect(pages.status).toBe(200);
+    expect(pages.body.pages[0].page_id).toBe("page_1");
+
+    const open = await requestJson(
+      "POST",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/browser/actions`,
+      {
+        token: accessToken,
+        body: { kind: "browser_open", url: "https://youtube.com" },
+      },
+    );
+    expect(open.status).toBe(202);
+    expect(browserControlService.openUrl).toHaveBeenCalledWith("https://youtube.com", { newPage: true });
+
+    const search = await requestJson(
+      "POST",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/browser/actions`,
+      {
+        token: accessToken,
+        body: { kind: "browser_search", query: "lofi mix", engine: "youtube" },
+      },
+    );
+    expect(search.status).toBe(202);
+    expect(browserControlService.search).toHaveBeenCalledWith("lofi mix", "youtube");
+
+    const select = await requestJson(
+      "POST",
+      `http://127.0.0.1:${relayPort}/v2/mobile/hosts/${hostId}/browser/actions`,
+      {
+        token: accessToken,
+        body: { kind: "browser_select_page", page_id: "page_1" },
+      },
+    );
+    expect(select.status).toBe(202);
+    expect(browserControlService.selectPage).toHaveBeenCalledWith("page_1");
+  });
 });
