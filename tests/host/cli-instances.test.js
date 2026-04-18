@@ -96,6 +96,14 @@ describe("CliInstancesManager", () => {
     expect(detail.event_count).toBe(2);
   });
 
+  it("strips ANSI terminal sequences from buffered output", () => {
+    const summary = manager.launchInstance({ preset: "claude" });
+    child.stdout.emit("data", Buffer.from("\u001b[2J\u001b[Hhello\r\n"));
+    const detail = manager.getInstance(summary.instance_id);
+    expect(detail.output).toBe("hello\n");
+    expect(detail.event_count).toBe(1);
+  });
+
   it("streams events via observeInstance, replaying history newer than sinceTs", () => {
     const summary = manager.launchInstance({ preset: "claude" });
     child.stdout.emit("data", Buffer.from("first"));

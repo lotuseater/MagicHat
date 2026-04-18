@@ -9,6 +9,9 @@ import { readJsonFileSync, writeJsonFileSync } from "../state/jsonStateStore.js"
 
 const MAX_OUTPUT_CHARS = 200_000;
 const MAX_EVENTS_PER_INSTANCE = 2_000;
+const ANSI_ESCAPE_PATTERN =
+  // CSI / OSC / other common terminal control sequences.
+  /\u001B(?:\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/gu;
 
 // Preset → { command, defaultArgs } for "full permissions + plan mode".
 // `args` is a template merged with the user's task. The task (if any) is passed as a
@@ -47,6 +50,12 @@ function truncate(text, max = MAX_OUTPUT_CHARS) {
   const head = text.slice(0, Math.floor(max * 0.1));
   const tail = text.slice(text.length - Math.floor(max * 0.9));
   return `${head}\n...[truncated]...\n${tail}`;
+}
+
+function sanitizeTerminalOutput(text) {
+  return String(text)
+    .replace(ANSI_ESCAPE_PATTERN, "")
+    .replace(/\r/g, "");
 }
 
 export class CliInstancesManager {
@@ -152,7 +161,10 @@ export class CliInstancesManager {
     };
 
     const appendChunk = (source) => (chunk) => {
-      const text = chunk.toString("utf8");
+      const text = sanitizeTerminalOutput(chunk.toString("utf8"));
+      if (!text) {
+        return;
+      }
       record.output = truncate(record.output + text);
       const event = {
         ts: this.now(),
