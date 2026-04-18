@@ -7,6 +7,15 @@ function launchToken(prefixBase = "magichat_team_app") {
   return `${prefixBase}_${process.pid}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
 }
 
+const FENRUS_COMBO_INDEX_BY_PRESET = Object.freeze({
+  default: 0,
+  "claude-code": 1,
+  codex: 2,
+  "claude-legacy": 3,
+  "custom-legacy": 4,
+  gemini: 5,
+});
+
 export class LifecycleManager {
   constructor({ beaconStore, ipcClient, processController, launchConfig }) {
     this.beaconStore = beaconStore;
@@ -76,10 +85,19 @@ export class LifecycleManager {
       }
 
       if (typeof fenrusLauncher === "string" && fenrusLauncher.length > 0) {
-        await this.ipcClient.sendCommand(launched, {
-          cmd: "set_startup_profile",
-          fenrus_launcher: fenrusLauncher,
-        }, { requireOk: true });
+        const fenrusComboIndex = FENRUS_COMBO_INDEX_BY_PRESET[fenrusLauncher];
+        if (Number.isInteger(fenrusComboIndex)) {
+          await this.ipcClient.sendCommand(launched, {
+            cmd: "ui_select_combo",
+            control: "fenrus_launcher",
+            index: fenrusComboIndex,
+          }, { requireOk: true });
+        } else {
+          await this.ipcClient.sendCommand(launched, {
+            cmd: "set_startup_profile",
+            fenrus_launcher: fenrusLauncher,
+          }, { requireOk: true });
+        }
       }
 
       if (task) {

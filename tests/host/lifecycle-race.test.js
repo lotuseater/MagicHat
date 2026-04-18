@@ -199,8 +199,9 @@ describe("instance launch/close race", () => {
       [
         expect.objectContaining({ pid: 701 }),
         expect.objectContaining({
-          cmd: "set_startup_profile",
-          fenrus_launcher: "codex",
+          cmd: "ui_select_combo",
+          control: "fenrus_launcher",
+          index: 2,
         }),
         expect.objectContaining({ requireOk: true }),
       ],
@@ -213,5 +214,45 @@ describe("instance launch/close race", () => {
         expect.objectContaining({ requireOk: true }),
       ],
     ]);
+  });
+
+  it("falls back to set_startup_profile for unsupported fenrus presets", async () => {
+    const sendCommand = vi.fn(async () => ({ status: "ok" }));
+    const manager = new LifecycleManager({
+      beaconStore: {
+        listInternalInstances: vi.fn(async () => []),
+        waitForNewInstance: vi.fn(async () => ({
+          pid: 701,
+          instance_id: "wizard_team_app_701_1000",
+          cmd_path: "cmd",
+          resp_path: "resp",
+        })),
+        pruneStaleEntries: vi.fn(async () => ({})),
+      },
+      ipcClient: {
+        sendCommand,
+      },
+      processController: {
+        launch: vi.fn(),
+        closeGracefully: vi.fn(async () => true),
+        forceKill: vi.fn(async () => true),
+      },
+      launchConfig: { command: "team-app.exe", args: [], waitMs: 200 },
+    });
+
+    await manager.launchInstance({
+      startupProfile: {
+        fenrus_launcher: "future-launcher",
+      },
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ pid: 701 }),
+      expect.objectContaining({
+        cmd: "set_startup_profile",
+        fenrus_launcher: "future-launcher",
+      }),
+      expect.objectContaining({ requireOk: true }),
+    );
   });
 });
