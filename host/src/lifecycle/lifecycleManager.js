@@ -16,6 +16,10 @@ const FENRUS_COMBO_INDEX_BY_PRESET = Object.freeze({
   gemini: 5,
 });
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class LifecycleManager {
   constructor({ beaconStore, ipcClient, processController, launchConfig }) {
     this.beaconStore = beaconStore;
@@ -84,21 +88,7 @@ export class LifecycleManager {
         }, { requireOk: true });
       }
 
-      if (typeof fenrusLauncher === "string" && fenrusLauncher.length > 0) {
-        const fenrusComboIndex = FENRUS_COMBO_INDEX_BY_PRESET[fenrusLauncher];
-        if (Number.isInteger(fenrusComboIndex)) {
-          await this.ipcClient.sendCommand(launched, {
-            cmd: "ui_select_combo",
-            control: "fenrus_launcher",
-            index: fenrusComboIndex,
-          }, { requireOk: true });
-        } else {
-          await this.ipcClient.sendCommand(launched, {
-            cmd: "set_startup_profile",
-            fenrus_launcher: fenrusLauncher,
-          }, { requireOk: true });
-        }
-      }
+      await this.applyFenrusLauncher(launched, fenrusLauncher);
 
       if (task) {
         await this.ipcClient.sendCommand(launched, {
@@ -106,6 +96,13 @@ export class LifecycleManager {
           instance_id: launched.instance_id,
           prompt: task,
         }, { requireOk: true });
+
+        // Team App can ignore very-early combo automation while the window is settling.
+        // Re-apply the Fenrus selection once the task is queued so the override sticks.
+        if (typeof fenrusLauncher === "string" && fenrusLauncher.length > 0) {
+          await sleep(250);
+          await this.applyFenrusLauncher(launched, fenrusLauncher);
+        }
       }
 
       return launched;
@@ -146,5 +143,26 @@ export class LifecycleManager {
     } finally {
       this.closeLocks.delete(key);
     }
+  }
+
+  async applyFenrusLauncher(instance, fenrusLauncher) {
+    if (typeof fenrusLauncher !== "string" || fenrusLauncher.length === 0) {
+      return;
+    }
+
+    const fenrusComboIndex = FENRUS_COMBO_INDEX_BY_PRESET[fenrusLauncher];
+    if (Number.isInteger(fenrusComboIndex)) {
+      await this.ipcClient.sendCommand(instance, {
+        cmd: "ui_select_combo",
+        control: "fenrus_launcher",
+        index: fenrusComboIndex,
+      }, { requireOk: true });
+      return;
+    }
+
+    await this.ipcClient.sendCommand(instance, {
+      cmd: "set_startup_profile",
+      fenrus_launcher: fenrusLauncher,
+    }, { requireOk: true });
   }
 }

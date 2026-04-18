@@ -213,6 +213,15 @@ describe("instance launch/close race", () => {
         }),
         expect.objectContaining({ requireOk: true }),
       ],
+      [
+        expect.objectContaining({ pid: 701 }),
+        expect.objectContaining({
+          cmd: "ui_select_combo",
+          control: "fenrus_launcher",
+          index: 2,
+        }),
+        expect.objectContaining({ requireOk: true }),
+      ],
     ]);
   });
 
