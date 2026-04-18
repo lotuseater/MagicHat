@@ -153,7 +153,7 @@ describe("instance launch/close race", () => {
     await fs.access(launchConfig.env.WIZARD_TEAM_APP_RUN_ARTIFACT_DIR);
   });
 
-  it("applies fenrus launcher separately from shared startup defaults", async () => {
+  it("applies team mode and launchers through Team App combo automation", async () => {
     const sendCommand = vi.fn(async () => ({ status: "ok" }));
     const manager = new LifecycleManager({
       beaconStore: {
@@ -180,8 +180,8 @@ describe("instance launch/close race", () => {
     await manager.launchInstance({
       task: "Hej",
       startupProfile: {
-        team_mode: "full",
-        launcher_preset: "claude",
+        team_mode: "simple",
+        launcher_preset: "codex",
         fenrus_launcher: "codex",
       },
     });
@@ -190,9 +190,18 @@ describe("instance launch/close race", () => {
       [
         expect.objectContaining({ pid: 701 }),
         expect.objectContaining({
-          cmd: "set_startup_profile",
-          team_mode: "full",
-          launcher_preset: "claude",
+          cmd: "ui_select_combo",
+          control: "team_mode",
+          index: 0,
+        }),
+        expect.objectContaining({ requireOk: true }),
+      ],
+      [
+        expect.objectContaining({ pid: 701 }),
+        expect.objectContaining({
+          cmd: "ui_select_combo",
+          control: "launcher",
+          index: 1,
         }),
         expect.objectContaining({ requireOk: true }),
       ],
@@ -260,6 +269,48 @@ describe("instance launch/close race", () => {
       expect.objectContaining({
         cmd: "set_startup_profile",
         fenrus_launcher: "future-launcher",
+      }),
+      expect.objectContaining({ requireOk: true }),
+    );
+  });
+
+  it("falls back to set_startup_profile for unsupported shared startup fields", async () => {
+    const sendCommand = vi.fn(async () => ({ status: "ok" }));
+    const manager = new LifecycleManager({
+      beaconStore: {
+        listInternalInstances: vi.fn(async () => []),
+        waitForNewInstance: vi.fn(async () => ({
+          pid: 701,
+          instance_id: "wizard_team_app_701_1000",
+          cmd_path: "cmd",
+          resp_path: "resp",
+        })),
+        pruneStaleEntries: vi.fn(async () => ({})),
+      },
+      ipcClient: {
+        sendCommand,
+      },
+      processController: {
+        launch: vi.fn(),
+        closeGracefully: vi.fn(async () => true),
+        forceKill: vi.fn(async () => true),
+      },
+      launchConfig: { command: "team-app.exe", args: [], waitMs: 200 },
+    });
+
+    await manager.launchInstance({
+      startupProfile: {
+        team_mode: "future-mode",
+        launcher_preset: "future-launcher",
+      },
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ pid: 701 }),
+      expect.objectContaining({
+        cmd: "set_startup_profile",
+        team_mode: "future-mode",
+        launcher_preset: "future-launcher",
       }),
       expect.objectContaining({ requireOk: true }),
     );

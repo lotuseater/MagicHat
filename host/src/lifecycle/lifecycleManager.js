@@ -16,6 +16,19 @@ const FENRUS_COMBO_INDEX_BY_PRESET = Object.freeze({
   gemini: 5,
 });
 
+const LAUNCHER_COMBO_INDEX_BY_PRESET = Object.freeze({
+  "claude-code": 0,
+  codex: 1,
+  "claude-legacy": 2,
+  "custom-legacy": 3,
+  gemini: 4,
+});
+
+const TEAM_MODE_COMBO_INDEX_BY_MODE = Object.freeze({
+  simple: 0,
+  full: 1,
+});
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -81,12 +94,7 @@ export class LifecycleManager {
           )
         : null;
 
-      if (sharedStartupProfile && Object.keys(sharedStartupProfile).length > 0) {
-        await this.ipcClient.sendCommand(launched, {
-          cmd: "set_startup_profile",
-          ...sharedStartupProfile,
-        }, { requireOk: true });
-      }
+      await this.applySharedStartupProfile(launched, sharedStartupProfile);
 
       await this.applyFenrusLauncher(launched, fenrusLauncher);
 
@@ -163,6 +171,46 @@ export class LifecycleManager {
     await this.ipcClient.sendCommand(instance, {
       cmd: "set_startup_profile",
       fenrus_launcher: fenrusLauncher,
+    }, { requireOk: true });
+  }
+
+  async applySharedStartupProfile(instance, startupProfile) {
+    if (!startupProfile || typeof startupProfile !== "object") {
+      return;
+    }
+
+    const fallbackProfile = { ...startupProfile };
+    const teamMode = typeof fallbackProfile.team_mode === "string" ? fallbackProfile.team_mode : "";
+    const launcherPreset =
+      typeof fallbackProfile.launcher_preset === "string" ? fallbackProfile.launcher_preset : "";
+
+    const teamModeIndex = TEAM_MODE_COMBO_INDEX_BY_MODE[teamMode];
+    if (Number.isInteger(teamModeIndex)) {
+      await this.ipcClient.sendCommand(instance, {
+        cmd: "ui_select_combo",
+        control: "team_mode",
+        index: teamModeIndex,
+      }, { requireOk: true });
+      delete fallbackProfile.team_mode;
+    }
+
+    const launcherIndex = LAUNCHER_COMBO_INDEX_BY_PRESET[launcherPreset];
+    if (Number.isInteger(launcherIndex)) {
+      await this.ipcClient.sendCommand(instance, {
+        cmd: "ui_select_combo",
+        control: "launcher",
+        index: launcherIndex,
+      }, { requireOk: true });
+      delete fallbackProfile.launcher_preset;
+    }
+
+    if (Object.keys(fallbackProfile).length === 0) {
+      return;
+    }
+
+    await this.ipcClient.sendCommand(instance, {
+      cmd: "set_startup_profile",
+      ...fallbackProfile,
     }, { requireOk: true });
   }
 }
