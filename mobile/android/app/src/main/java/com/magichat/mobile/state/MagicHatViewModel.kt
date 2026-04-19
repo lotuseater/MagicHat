@@ -207,8 +207,13 @@ class MagicHatViewModel(
     }
 
     fun navigateTo(screen: MagicHatScreen) {
-        _uiState.update { it.copy(screen = screen) }
-        when (screen) {
+        val resolvedScreen = if (screen == MagicHatScreen.CLI_INSTANCES) {
+            MagicHatScreen.INSTANCES
+        } else {
+            screen
+        }
+        _uiState.update { it.copy(screen = resolvedScreen) }
+        when (resolvedScreen) {
             MagicHatScreen.INSTANCES -> {
                 launchBackgroundRefresh {
                     loadCurrentHostData()
@@ -222,17 +227,6 @@ class MagicHatViewModel(
                 }
             }
 
-            MagicHatScreen.CLI_INSTANCES -> {
-                // Silent background refresh: an error here (host briefly
-                // unreachable, not-yet-implemented endpoint, etc.) shouldn't
-                // surface as a snackbar the user has to dismiss — the empty
-                // state + explicit Refresh button is enough.
-                launchBackgroundRefresh {
-                    repository.refreshActiveHost()
-                    refreshCliInstances(loadPresetsIfMissing = true)
-                }
-            }
-
             MagicHatScreen.BROWSER -> {
                 launchBackgroundRefresh {
                     repository.refreshActiveHost()
@@ -241,6 +235,7 @@ class MagicHatViewModel(
             }
 
             MagicHatScreen.PAIRED_PC_SELECTION -> Unit
+            MagicHatScreen.CLI_INSTANCES -> Unit
         }
     }
 

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Terminal
@@ -31,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.state.MagicHatScreen
 import com.magichat.mobile.state.MagicHatViewModel
-import com.magichat.mobile.ui.screens.CliInstancesScreen
 import com.magichat.mobile.ui.screens.BrowserScreen
 import com.magichat.mobile.ui.screens.InstanceDetailScreen
 import com.magichat.mobile.ui.screens.InstancesScreen
@@ -61,8 +59,8 @@ fun MagicHatApp(
                             MagicHatScreen.PAIRED_PC_SELECTION -> "Hosts"
                             MagicHatScreen.INSTANCES -> "Sessions"
                             MagicHatScreen.INSTANCE_DETAIL -> "Session"
-                            MagicHatScreen.CLI_INSTANCES -> "CLI"
                             MagicHatScreen.BROWSER -> "Browser"
+                            MagicHatScreen.CLI_INSTANCES -> "Sessions"
                         },
                     )
                 },
@@ -95,12 +93,6 @@ fun MagicHatApp(
                     icon = { Icon(Icons.Outlined.Terminal, contentDescription = null) },
                     enabled = uiState.selectedInstanceId != null,
                     label = { Text("Session") },
-                )
-                NavigationBarItem(
-                    selected = uiState.screen == MagicHatScreen.CLI_INSTANCES,
-                    onClick = { viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES) },
-                    icon = { Icon(Icons.Outlined.Code, contentDescription = null) },
-                    label = { Text("CLI") },
                 )
                 NavigationBarItem(
                     selected = uiState.screen == MagicHatScreen.BROWSER,
@@ -177,20 +169,6 @@ fun MagicHatApp(
                     }
                 }
 
-                MagicHatScreen.CLI_INSTANCES -> CliInstancesScreen(
-                    state = uiState,
-                    onPresetChanged = viewModel::updateCliPreset,
-                    onLaunchPromptChanged = viewModel::updateCliLaunchPrompt,
-                    onLaunch = viewModel::launchCliInstance,
-                    onSelectInstance = { viewModel.selectCliInstance(it) },
-                    onFollowUpChanged = viewModel::updateCliFollowUp,
-                    onSendFollowUp = viewModel::sendCliFollowUp,
-                    onClose = viewModel::closeCliInstance,
-                    onRefresh = viewModel::refreshCliPanel,
-                    onSilentRefresh = viewModel::refreshCliPanelQuietly,
-                    onRefreshActiveHost = viewModel::refreshActiveHostStatus,
-                )
-
                 MagicHatScreen.BROWSER -> BrowserScreen(
                     state = uiState,
                     onBrowserUrlChanged = viewModel::updateBrowserUrl,
@@ -200,6 +178,22 @@ fun MagicHatApp(
                     onSearchInBrowser = viewModel::searchInBrowser,
                     onSelectPage = viewModel::selectBrowserPage,
                     onRefresh = viewModel::refreshBrowserPanel,
+                    onRefreshActiveHost = viewModel::refreshActiveHostStatus,
+                )
+
+                MagicHatScreen.CLI_INSTANCES -> InstancesScreen(
+                    state = uiState,
+                    onLaunchTitleChanged = viewModel::updateLaunchTitle,
+                    onLaunchTeamModeChanged = viewModel::updateLaunchTeamMode,
+                    onLaunchLauncherPresetChanged = viewModel::updateLaunchLauncherPreset,
+                    onLaunchFenrusLauncherChanged = viewModel::updateLaunchFenrusLauncher,
+                    onRestoreSessionChanged = viewModel::updateRestoreSession,
+                    onRefresh = viewModel::refreshInstances,
+                    onLaunchInstance = viewModel::launchInstance,
+                    onCloseInstance = viewModel::closeInstance,
+                    onOpenInstance = viewModel::openInstance,
+                    onPickRestoreRef = viewModel::pickRestoreRef,
+                    onRestoreSession = viewModel::restoreSession,
                     onRefreshActiveHost = viewModel::refreshActiveHostStatus,
                 )
             }

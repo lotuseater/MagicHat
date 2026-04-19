@@ -387,7 +387,7 @@ class MagicHatViewModelTest {
     }
 
     @Test
-    fun navigateToCliLoadsPresetsAndInstances() = runTest(dispatcher) {
+    fun navigateToCliRedirectsToSessions() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository(
             cliPresetsResult = listOf(
                 CliPreset(preset = "claude", label = "Claude Code", command = "claude"),
@@ -415,34 +415,25 @@ class MagicHatViewModelTest {
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
-        assertThat(state.screen).isEqualTo(MagicHatScreen.CLI_INSTANCES)
-        assertThat(repository.listCliPresetsCalls).isEqualTo(1)
-        assertThat(repository.listCliInstancesCalls).isEqualTo(1)
-        assertThat(state.cliPresets.map { it.preset }).containsExactly("claude", "codex").inOrder()
-        assertThat(state.cliInstances.map { it.instanceId }).containsExactly("cli-1")
-        assertThat(state.cliSelectedInstanceId).isEqualTo("cli-1")
-        assertThat(state.cliSelectedPreset).isEqualTo("claude")
+        assertThat(state.screen).isEqualTo(MagicHatScreen.INSTANCES)
+        assertThat(repository.listCliPresetsCalls).isEqualTo(0)
+        assertThat(repository.listCliInstancesCalls).isEqualTo(0)
     }
 
     @Test
-    fun launchCliKeepsLaunchedInstanceSelectedAcrossRefresh() = runTest(dispatcher) {
-        val launched = CliInstanceWire(
-            instanceId = "cli-new",
-            preset = "codex",
-            presetLabel = "Codex CLI",
-            title = "Codex CLI",
-            command = "codex",
-            status = "running",
-            output = "booted",
-        )
+    fun navigateToCliLoadsSessionsInsteadOfLaunchingCli() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository(
-            cliPresetsResult = listOf(
-                CliPreset(preset = "claude", label = "Claude Code", command = "claude"),
-                CliPreset(preset = "codex", label = "Codex CLI", command = "codex"),
+            instancesResult = listOf(
+                TeamAppInstance(
+                    instanceId = "session-1",
+                    title = "Existing Session",
+                    active = true,
+                    health = "running",
+                    sessionId = "session-session-1",
+                    restoreRef = "restore-session-1",
+                ),
             ),
-            cliInstancesResult = listOf(launched),
         )
-        repository.launchCliInstanceResult = launched
         repository.pairingStateFlow.value = PairingSnapshot(
             pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
             activeHostId = "alpha",
@@ -451,40 +442,29 @@ class MagicHatViewModelTest {
         advanceUntilIdle()
 
         viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES)
-        advanceUntilIdle()
-        viewModel.updateCliPreset("codex")
-        viewModel.launchCliInstance()
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
-        assertThat(repository.launchCliCalls).containsExactly(
-            CliLaunchInvocation(
-                preset = "codex",
-                title = null,
-                initialPrompt = "",
-            ),
-        )
-        assertThat(state.cliSelectedInstanceId).isEqualTo("cli-new")
-        assertThat(state.cliInstances.first().instanceId).isEqualTo("cli-new")
+        assertThat(state.screen).isEqualTo(MagicHatScreen.INSTANCES)
+        assertThat(repository.listInstancesCalls).isEqualTo(1)
+        assertThat(state.instances.map { it.instanceId }).containsExactly("session-1")
+        assertThat(repository.launchCliCalls).isEmpty()
     }
 
     @Test
-    fun launchCliIgnoresSecondTapWhileFirstLaunchIsInFlight() = runTest(dispatcher) {
-        val launched = CliInstanceWire(
-            instanceId = "cli-new",
-            preset = "codex",
-            presetLabel = "Codex CLI",
-            title = "Codex CLI",
-            command = "codex",
-            status = "running",
-        )
+    fun navigateToCliDoesNotRefreshCliPanel() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository(
-            cliPresetsResult = listOf(
-                CliPreset(preset = "codex", label = "Codex CLI", command = "codex"),
+            instancesResult = listOf(
+                TeamAppInstance(
+                    instanceId = "session-1",
+                    title = "Existing Session",
+                    active = true,
+                    health = "running",
+                    sessionId = "session-session-1",
+                    restoreRef = "restore-session-1",
+                ),
             ),
-            cliInstancesResult = listOf(launched),
         )
-        repository.launchCliInstanceResult = launched
         repository.pairingStateFlow.value = PairingSnapshot(
             pairedHosts = listOf(pairedHost(hostId = "alpha", displayName = "Office Mac")),
             activeHostId = "alpha",
@@ -495,19 +475,22 @@ class MagicHatViewModelTest {
         viewModel.navigateTo(MagicHatScreen.CLI_INSTANCES)
         advanceUntilIdle()
 
-        viewModel.launchCliInstance()
-        viewModel.launchCliInstance()
-        advanceUntilIdle()
-
-        assertThat(repository.launchCliCalls).hasSize(1)
-        assertThat(viewModel.uiState.value.cliLaunchInFlight).isFalse()
+        assertThat(repository.listCliPresetsCalls).isEqualTo(0)
+        assertThat(repository.listCliInstancesCalls).isEqualTo(0)
     }
 
     @Test
-    fun navigateToCliRefreshesHostPresenceBeforeLoading() = runTest(dispatcher) {
+    fun navigateToCliRefreshesHostPresenceBeforeLoadingSessions() = runTest(dispatcher) {
         val repository = FakeMagicHatRepository(
-            cliPresetsResult = listOf(
-                CliPreset(preset = "claude", label = "Claude Code", command = "claude"),
+            instancesResult = listOf(
+                TeamAppInstance(
+                    instanceId = "session-1",
+                    title = "Existing Session",
+                    active = true,
+                    health = "running",
+                    sessionId = "session-session-1",
+                    restoreRef = "restore-session-1",
+                ),
             ),
         )
         repository.pairingStateFlow.value = PairingSnapshot(
@@ -532,7 +515,7 @@ class MagicHatViewModelTest {
         val state = viewModel.uiState.value
         assertThat(repository.refreshActiveHostCalls).isEqualTo(1)
         assertThat(state.activeHostPresence).isEqualTo("online")
-        assertThat(state.cliPresets.map { it.preset }).containsExactly("claude")
+        assertThat(state.instances.map { it.instanceId }).containsExactly("session-1")
     }
 
     @Test

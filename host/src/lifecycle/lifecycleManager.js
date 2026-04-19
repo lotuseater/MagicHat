@@ -25,8 +25,9 @@ const LAUNCHER_COMBO_INDEX_BY_PRESET = Object.freeze({
 });
 
 const TEAM_MODE_COMBO_INDEX_BY_MODE = Object.freeze({
-  simple: 0,
-  full: 1,
+  agent: 0,
+  simple: 1,
+  full: 2,
 });
 
 function sleep(ms) {

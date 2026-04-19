@@ -203,7 +203,7 @@ describe("instance launch/close race", () => {
 
     expect(cmdsOf("ui_select_combo")).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ control: "team_mode", index: 0 }),
+        expect.objectContaining({ control: "team_mode", index: 1 }),
         expect.objectContaining({ control: "launcher", index: 1 }),
         expect.objectContaining({ control: "fenrus_launcher", index: 2 }),
       ]),

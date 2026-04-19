@@ -4,6 +4,7 @@ import com.squareup.moshi.Json
 
 enum class TeamModeOption(val wireValue: String, val label: String) {
     APP_DEFAULT("", "App default"),
+    AGENT("agent", "Agent"),
     SIMPLE("simple", "Simple"),
     FULL("full", "Full");
 }
