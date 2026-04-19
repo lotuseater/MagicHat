@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -41,6 +42,37 @@ function parseArgs(raw) {
   return args;
 }
 
+function resolveDefaultTeamAppCommand(env, hostCwd) {
+  const configuredCwd = env.MAGICHAT_TEAM_APP_CWD || hostCwd || process.cwd();
+  const candidates = process.platform === "win32"
+    ? [
+        path.join(configuredCwd, "build", "wizard_team_app_console.exe"),
+        path.join(configuredCwd, "build", "wizard_team_app.exe"),
+        path.join(configuredCwd, "..", "Wizard_Erasmus", "build", "wizard_team_app_console.exe"),
+        path.join(configuredCwd, "..", "Wizard_Erasmus", "build", "wizard_team_app.exe"),
+      ]
+    : [
+        path.join(configuredCwd, "build", "wizard_team_app_console"),
+        path.join(configuredCwd, "build", "wizard_team_app"),
+        "wizard_team_app_console",
+        "wizard_team_app",
+      ];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    if (!candidate.includes(path.sep)) {
+      return candidate;
+    }
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
 export function readHostConfig(env = process.env) {
   const tempRoot = env.TEMP || env.TMP || os.tmpdir();
   const statePath =
@@ -57,7 +89,7 @@ export function readHostConfig(env = process.env) {
     tokenTtlMs: parsePositiveInt(env.MAGICHAT_TOKEN_TTL_MS, 24 * 60 * 60 * 1000),
     statePath,
     launch: {
-      command: env.MAGICHAT_TEAM_APP_CMD || "",
+      command: env.MAGICHAT_TEAM_APP_CMD || resolveDefaultTeamAppCommand(env, process.cwd()),
       args: parseArgs(env.MAGICHAT_TEAM_APP_ARGS || ""),
       cwd: env.MAGICHAT_TEAM_APP_CWD || process.cwd(),
       waitMs: parsePositiveInt(env.MAGICHAT_LAUNCH_WAIT_MS, 15000),
