@@ -1,6 +1,14 @@
 import Foundation
 
 public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
+    public enum Scenario: String, Sendable {
+        case launch
+        case connected
+        case trustPrompt
+        case errorBanner
+    }
+
+    private let scenario: Scenario
     private let demoHost = HostBeacon(
         hostID: "pc-main",
         displayName: "Office PC",
@@ -33,7 +41,11 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
     private var activeSessionID: String?
     private var streamTask: Task<Void, Never>?
 
-    private var instances: [TeamAppInstance] = [
+    private var instances: [TeamAppInstance]
+
+    public init(scenario: Scenario = .connected) {
+        self.scenario = scenario
+        self.instances = [
         TeamAppInstance(
             id: "inst-1",
             title: "Refactor Build Pipeline",
@@ -54,13 +66,21 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
             lastResultPreview: "Waiting for prompt",
             restoreRef: nil
         )
-    ]
+        ]
 
-    public init() {
-        pairedHostsList = [demoHost, demoRelayHost]
-        pairedHost = demoHost
-        activeInstanceID = instances.first?.id
-        activeSessionID = instances.first?.activeSessionID
+        switch scenario {
+        case .launch:
+            pairedHostsList = []
+            pairedHost = nil
+            activeInstanceID = nil
+            activeSessionID = nil
+            instances = []
+        case .connected, .trustPrompt, .errorBanner:
+            pairedHostsList = [demoHost, demoRelayHost]
+            pairedHost = demoHost
+            activeInstanceID = instances.first?.id
+            activeSessionID = instances.first?.activeSessionID
+        }
     }
 
     public func pairToFirstAvailableHost(pairingCode: String?) async throws -> HostBeacon {
@@ -116,10 +136,12 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
     }
 
     public func listInstances() async throws -> [TeamAppInstance] {
+        try throwIfPreviewErrorNeeded()
         instances
     }
 
     public func listKnownRestoreRefs() async throws -> [KnownRestoreRef] {
+        try throwIfPreviewErrorNeeded()
         instances.compactMap { instance in
             guard let restoreRef = instance.restoreRef else {
                 return nil
@@ -172,14 +194,17 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
     }
 
     public func fetchStatus(for instanceID: String) async throws -> TeamAppStatus {
+        try throwIfPreviewErrorNeeded()
         let current = instances.first(where: { $0.id == instanceID })
         return TeamAppStatus(
             instanceID: instanceID,
             state: current?.state ?? .unknown,
-            progressPercent: current?.state == .completed ? 100 : 42,
-            healthMessage: current == nil ? "Missing instance" : "Host healthy",
-            latestResult: current?.lastResultPreview,
+            progressPercent: current?.state == .completed ? 100 : 64,
+            healthMessage: statusHealthMessage(for: current),
+            latestResult: statusLatestResult(for: current),
             activeSessionID: current?.activeSessionID,
+            trustStatus: scenario == .trustPrompt ? "prompt_required" : nil,
+            pendingTrustProject: scenario == .trustPrompt ? "MagicHat/mobile/ios" : nil,
             updatedAt: Date()
         )
     }
@@ -309,6 +334,28 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
         )
     }
 
+    private func statusHealthMessage(for current: TeamAppInstance?) -> String {
+        guard current != nil else {
+            return "Missing instance"
+        }
+
+        switch scenario {
+        case .trustPrompt:
+            return "Waiting for project trust approval on the host"
+        default:
+            return "Host healthy"
+        }
+    }
+
+    private func statusLatestResult(for current: TeamAppInstance?) -> String? {
+        switch scenario {
+        case .trustPrompt:
+            return "Wizard is paused until the trust prompt is approved from mobile."
+        default:
+            return current?.lastResultPreview
+        }
+    }
+
     private func updateInstance(instanceID: String, transform: (TeamAppInstance) -> TeamAppInstance) throws {
         guard let index = instances.firstIndex(where: { $0.id == instanceID }) else {
             throw HostAPIError.http(statusCode: 404, message: "Instance not found")
@@ -320,5 +367,16 @@ public actor PreviewRuntimeClient: TeamAppRuntimeProviding {
     private func upsertHost(_ host: HostBeacon) {
         pairedHostsList.removeAll { $0.hostID == host.hostID }
         pairedHostsList.append(host)
+    }
+
+    private func throwIfPreviewErrorNeeded() throws {
+        guard scenario == .errorBanner else {
+            return
+        }
+
+        throw HostAPIError.http(
+            statusCode: 503,
+            message: "Preview simulator intentionally failed the host sync so the visual harness can capture the error banner state."
+        )
     }
 }

@@ -1,0 +1,23 @@
+{
+  "status": "waiting_for_macos_runner",
+  "blocking_dependency": "macOS host with Xcode and iOS Simulator",
+  "lane": "ios-sim-screenshots",
+  "platform_requirement": "macOS with Xcode",
+  "default_simulator_device": "iPhone 15",
+  "run_command": "./scripts/mobile-validation/ios_screenshots.sh",
+  "post_run_verify_command": "./scripts/mobile-validation/ios_screenshot_verify.sh",
+  "accessibility_map_path": "./scripts/mobile-validation/ios_accessibility_map.json",
+  "artifact_root": ".magichat/artifacts/ios-sim",
+  "screenshots_dir": ".magichat/artifacts/ios-sim/screenshots",
+  "manifest_path": ".magichat/artifacts/ios-sim/screenshots/manifest.txt",
+  "first_expected_screenshot": ".magichat/artifacts/ios-sim/screenshots/01_launch_pairing.png",
+  "expected_screenshots": [
+    "01_launch_pairing.png",
+    "02_pairing_connected.png",
+    "03_connected_instances.png",
+    "04_prompt_composer.png",
+    "05_status_trust_prompt.png",
+    "06_restore_flow.png",
+    "07_error_banner.png"
+  ]
+}

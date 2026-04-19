@@ -11,123 +11,131 @@ public struct StatusPanelView: View {
     public var body: some View {
         let canRunCommands = store.pairedHost?.canRunCommands == true
 
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Health + Results")
-                    .font(.title3.bold())
-                Spacer()
-                Button("Refresh Now") {
-                    Task { await store.refreshStatus() }
-                }
-                .buttonStyle(.bordered)
-                .disabled(store.activeInstanceID == nil || store.isPerformingRemoteAction || canRunCommands == false)
-            }
-
-            HostContextCard(
-                host: store.pairedHost,
-                presence: store.activeHostPresence,
-                activeInstanceID: store.activeInstanceID,
-                onRefreshStatus: store.pairedHost == nil ? nil : { Task { await store.refreshCurrentHostStatus() } },
-                refreshEnabled: store.isPerformingRemoteAction == false
-            )
-
-            if let snapshot = store.statusSnapshot {
-                if snapshot.trustStatus == "prompt_required" {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Team App is waiting for project trust", systemImage: "lock.open.trianglebadge.exclamationmark")
-                            .font(.headline)
-                        if let pendingTrustProject = snapshot.pendingTrustProject, pendingTrustProject.isEmpty == false {
-                            Text(pendingTrustProject)
-                                .font(.subheadline)
-                        }
-                        Text("Approve this once and the task can continue from the phone instead of stalling on the PC.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: 8) {
-                            Button("Trust Project") {
-                                Task { await store.answerTrustPrompt(true) }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(store.isPerformingRemoteAction || canRunCommands == false)
-
-                            Button("Deny") {
-                                Task { await store.answerTrustPrompt(false) }
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(store.isPerformingRemoteAction || canRunCommands == false)
-                        }
-                    }
-                    .padding(12)
-                    .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-
-                HStack(spacing: 12) {
-                    Label(snapshot.state.rawValue.capitalized, systemImage: icon(for: snapshot.state))
-                        .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Health + Results")
+                        .font(.title3.bold())
                     Spacer()
-                    Text(snapshot.healthMessage ?? "No health warning")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    Button("Refresh Now") {
+                        Task { await store.refreshStatus() }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(store.activeInstanceID == nil || store.isPerformingRemoteAction || canRunCommands == false)
+                    .accessibilityIdentifier("magichat.status.refresh")
                 }
 
-                ProgressView(value: normalizedProgress(snapshot.progressPercent)) {
-                    Text(progressLabel(for: snapshot.progressPercent))
-                }
+                HostContextCard(
+                    host: store.pairedHost,
+                    presence: store.activeHostPresence,
+                    activeInstanceID: store.activeInstanceID,
+                    onRefreshStatus: store.pairedHost == nil ? nil : { Task { await store.refreshCurrentHostStatus() } },
+                    refreshEnabled: store.isPerformingRemoteAction == false
+                )
 
-                Text("Updated: \(snapshot.updatedAt.formatted(date: .omitted, time: .standard))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let snapshot = store.statusSnapshot {
+                    if snapshot.trustStatus == "prompt_required" {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Team App is waiting for project trust", systemImage: "lock.open.trianglebadge.exclamationmark")
+                                .font(.headline)
+                            if let pendingTrustProject = snapshot.pendingTrustProject, pendingTrustProject.isEmpty == false {
+                                Text(pendingTrustProject)
+                                    .font(.subheadline)
+                            }
+                            Text("Approve this once and the task can continue from the phone instead of stalling on the PC.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                Button("Trust Project") {
+                                    Task { await store.answerTrustPrompt(true) }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(store.isPerformingRemoteAction || canRunCommands == false)
+                                .accessibilityIdentifier("magichat.status.trustProject")
 
-                Text(snapshot.latestResult ?? "No result payload yet")
-                    .font(.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                Button("Deny") {
+                                    Task { await store.answerTrustPrompt(false) }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(store.isPerformingRemoteAction || canRunCommands == false)
+                                .accessibilityIdentifier("magichat.status.denyTrust")
+                            }
+                        }
+                        .padding(12)
+                        .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .accessibilityIdentifier("magichat.status.trustPrompt")
+                    }
 
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Live Updates")
+                    HStack(spacing: 12) {
+                        Label(snapshot.state.rawValue.capitalized, systemImage: icon(for: snapshot.state))
                             .font(.headline)
                         Spacer()
-                        Text(store.streamStatus)
-                            .font(.caption)
+                        Text(snapshot.healthMessage ?? "No health warning")
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
 
-                    if store.streamEvents.isEmpty {
-                        Text("Waiting for live stream events from Team App.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(Array(store.streamEvents.suffix(12))) { event in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(event.type)
-                                    .font(.caption.bold())
-                                Text(
-                                    [event.updatedAt, event.message, event.outputChunk]
-                                        .compactMap { $0 }
-                                        .joined(separator: " | ")
-                                )
+                    ProgressView(value: normalizedProgress(snapshot.progressPercent)) {
+                        Text(progressLabel(for: snapshot.progressPercent))
+                    }
+
+                    Text("Updated: \(snapshot.updatedAt.formatted(date: .omitted, time: .standard))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(snapshot.latestResult ?? "No result payload yet")
+                        .font(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Live Updates")
+                                .font(.headline)
+                            Spacer()
+                            Text(store.streamStatus)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        }
+
+                        if store.streamEvents.isEmpty {
+                            Text("Waiting for live stream events from Team App.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(Array(store.streamEvents.suffix(12))) { event in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(event.type)
+                                        .font(.caption.bold())
+                                    Text(
+                                        [event.updatedAt, event.message, event.outputChunk]
+                                            .compactMap { $0 }
+                                            .joined(separator: " | ")
+                                    )
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                     }
+                } else {
+                    ContentUnavailableView(
+                        "No Status Yet",
+                        systemImage: "waveform.path.ecg",
+                        description: Text("Switch to an active instance to inspect health, progress, and latest results.")
+                    )
                 }
-            } else {
-                ContentUnavailableView(
-                    "No Status Yet",
-                    systemImage: "waveform.path.ecg",
-                    description: Text("Switch to an active instance to inspect health, progress, and latest results.")
-                )
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
         }
-        .padding()
+        .accessibilityIdentifier("magichat.status.screen")
     }
 
     private func icon(for state: TeamAppInstanceState) -> String {

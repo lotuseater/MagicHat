@@ -1,0 +1,46 @@
+{
+  "root": {
+    "tabs": "magichat.root.tabs",
+    "error_banner": "magichat.error.banner"
+  },
+  "tabs": {
+    "pair": "magichat.tab.pair",
+    "instances": "magichat.tab.instances",
+    "prompts": "magichat.tab.prompts",
+    "status": "magichat.tab.status",
+    "restore": "magichat.tab.restore"
+  },
+  "pairing": {
+    "screen": "magichat.pairing.screen",
+    "uri_field": "magichat.pairing.uri",
+    "pair_from_uri": "magichat.pairing.fromURI",
+    "discover_hosts": "magichat.pairing.discover",
+    "pin_field": "magichat.pairing.pin",
+    "pair_selected_host": "magichat.pairing.selectedHost"
+  },
+  "instances": {
+    "screen": "magichat.instances.screen",
+    "refresh": "magichat.instances.refresh",
+    "open_new": "magichat.instances.openNew"
+  },
+  "prompts": {
+    "screen": "magichat.prompts.screen",
+    "prompt_text": "magichat.prompts.promptText",
+    "send_prompt": "magichat.prompts.sendPrompt",
+    "follow_up_text": "magichat.prompts.followUpText",
+    "send_follow_up": "magichat.prompts.sendFollowUp"
+  },
+  "status": {
+    "screen": "magichat.status.screen",
+    "refresh": "magichat.status.refresh",
+    "trust_prompt": "magichat.status.trustPrompt",
+    "trust_project": "magichat.status.trustProject",
+    "deny_trust": "magichat.status.denyTrust"
+  },
+  "restore": {
+    "screen": "magichat.restore.screen",
+    "session_id": "magichat.restore.sessionID",
+    "submit": "magichat.restore.submit",
+    "monitor": "magichat.restore.monitor"
+  }
+}

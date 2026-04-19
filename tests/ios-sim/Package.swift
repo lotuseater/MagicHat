@@ -4,8 +4,11 @@ import PackageDescription
 let package = Package(
     name: "MagicHatIOSSimSmoke",
     platforms: [
-        .iOS(.v16),
-        .macOS(.v12),
+        .iOS(.v17),
+        .macOS(.v14),
+    ],
+    dependencies: [
+        .package(path: "../../mobile/ios"),
     ],
     products: [
         .library(name: "MagicHatIOSSimSmoke", targets: ["MagicHatIOSSimSmoke"]),
@@ -17,7 +20,10 @@ let package = Package(
         ),
         .testTarget(
             name: "MagicHatIOSSimSmokeTests",
-            dependencies: ["MagicHatIOSSimSmoke"],
+            dependencies: [
+                "MagicHatIOSSimSmoke",
+                .product(name: "MagicHatIOSCore", package: "MagicHatIOSCore"),
+            ],
             path: "Tests"
         ),
     ]

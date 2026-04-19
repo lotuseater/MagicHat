@@ -194,6 +194,65 @@ iOS smoke package against the local mock host:
 MAGICHAT_HOST_URL=http://127.0.0.1:18787 ./scripts/mobile-validation/ios_smoke.sh
 ```
 
+Prerequisites for the iOS simulator screenshot lane:
+
+- macOS host with Xcode installed
+- `xcrun` and `xcodebuild` available in the shell environment
+- an installed iOS Simulator device matching `MAGICHAT_IOS_SIM_DEVICE` or the default `iPhone 15`
+- the local mock host running at `MAGICHAT_HOST_URL` if you also want the host API smoke phase after screenshots
+
+The same command now runs the existing `tests/ios-sim` Swift package as the iOS simulator visual harness, without needing a separate app target, and normalizes the exported attachments into a deterministic seven-file baseline under `.magichat/artifacts/ios-sim/screenshots`, with `manifest.txt` listing the expected files, `legend.txt` describing each screenshot, `command.txt` recording the exact screenshot-lane invocation, `sources.txt` recording the raw-exported attachment path used for each normalized PNG, `sha256.txt` recording the PNG checksums, `index.html` rendering a simple gallery, and `metadata.json` capturing the lane name, simulator destination, exact artifact paths, and the per-screenshot normalized/raw-path mapping plus hashes and byte sizes, before the host API smoke checks. This visual lane requires macOS with Xcode installed and now fails fast on non-macOS hosts. The canonical screenshot lane now also fails if any expected PNG name is exported more than once, instead of silently picking an arbitrary attachment. The canonical screenshot lane defaults to `iPhone 15` unless `MAGICHAT_IOS_SIM_DEVICE` is overridden.
+
+For screenshot-only simulator iteration, skip the host API smoke phase:
+
+```bash
+MAGICHAT_IOS_RUN_HOST_SMOKE=0 ./scripts/mobile-validation/ios_smoke.sh
+```
+
+Shortcut for the same screenshot-only lane:
+
+```bash
+./scripts/mobile-validation/ios_screenshots.sh
+```
+
+The shortcut now runs the screenshot-only lane and then verifies the resulting artifact bundle. The verification step checks the deterministic screenshot list, legend/source mappings, command metadata, and checksums. To re-run verification against an existing bundle:
+
+```bash
+./scripts/mobile-validation/ios_screenshot_verify.sh
+```
+
+Compare a fresh screenshot bundle against a saved baseline:
+
+```bash
+./scripts/mobile-validation/ios_screenshot_diff.sh /path/to/baseline/screenshots
+```
+
+Promote the current verified screenshot bundle into an empty baseline directory:
+
+```bash
+./scripts/mobile-validation/ios_screenshot_promote.sh /path/to/baseline/screenshots
+```
+
+Expected artifact set after the simulator run:
+
+- `.magichat/artifacts/ios-sim/derived-data/`
+- `.magichat/artifacts/ios-sim/visual-tests.xcresult`
+- `.magichat/artifacts/ios-sim/raw-attachments/`
+- `.magichat/artifacts/ios-sim/screenshots/01_launch_pairing.png`
+- `.magichat/artifacts/ios-sim/screenshots/02_pairing_connected.png`
+- `.magichat/artifacts/ios-sim/screenshots/03_connected_instances.png`
+- `.magichat/artifacts/ios-sim/screenshots/04_prompt_composer.png`
+- `.magichat/artifacts/ios-sim/screenshots/05_status_trust_prompt.png`
+- `.magichat/artifacts/ios-sim/screenshots/06_restore_flow.png`
+- `.magichat/artifacts/ios-sim/screenshots/07_error_banner.png`
+- `.magichat/artifacts/ios-sim/screenshots/manifest.txt`
+- `.magichat/artifacts/ios-sim/screenshots/legend.txt`
+- `.magichat/artifacts/ios-sim/screenshots/command.txt`
+- `.magichat/artifacts/ios-sim/screenshots/sources.txt`
+- `.magichat/artifacts/ios-sim/screenshots/sha256.txt`
+- `.magichat/artifacts/ios-sim/screenshots/index.html`
+- `.magichat/artifacts/ios-sim/screenshots/metadata.json`
+
 iOS source typecheck:
 
 ```bash
