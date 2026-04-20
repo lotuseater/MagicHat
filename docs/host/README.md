@@ -56,6 +56,10 @@ Environment variables:
 - `MAGICHAT_TEAM_APP_CWD`
 - `MAGICHAT_ALLOW_NON_WINDOWS=1` (non-Windows test/dev only)
 
+On Windows, prefer the GUI wrapper binary `wizard_team_app.exe` for
+`MAGICHAT_TEAM_APP_CMD`. The detached host launch mode does not reliably keep
+`wizard_team_app_console.exe` alive long enough to publish its beacon.
+
 ## Tests
 From `MagicHat/host`:
 

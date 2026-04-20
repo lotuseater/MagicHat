@@ -44,13 +44,17 @@ function parseArgs(raw) {
 
 function resolveDefaultTeamAppCommand(env, hostCwd) {
   const configuredCwd = env.MAGICHAT_TEAM_APP_CWD || hostCwd || process.cwd();
+  const candidateRoots = [
+    configuredCwd,
+    path.join(configuredCwd, "..", "Wizard_Erasmus"),
+    path.join(configuredCwd, "..", "..", "Wizard_Erasmus"),
+  ];
+
   const candidates = process.platform === "win32"
-    ? [
-        path.join(configuredCwd, "build", "wizard_team_app_console.exe"),
-        path.join(configuredCwd, "build", "wizard_team_app.exe"),
-        path.join(configuredCwd, "..", "Wizard_Erasmus", "build", "wizard_team_app_console.exe"),
-        path.join(configuredCwd, "..", "Wizard_Erasmus", "build", "wizard_team_app.exe"),
-      ]
+    ? candidateRoots.flatMap((root) => [
+        path.join(root, "build", "wizard_team_app.exe"),
+        path.join(root, "build", "wizard_team_app_console.exe"),
+      ])
     : [
         path.join(configuredCwd, "build", "wizard_team_app_console"),
         path.join(configuredCwd, "build", "wizard_team_app"),

@@ -31,8 +31,8 @@ function Find-TeamAppCommand($repoRoot) {
 
     $wizardRepo = Join-Path (Split-Path -Parent $repoRoot) 'Wizard_Erasmus'
     $candidates = @(
-        (Join-Path $wizardRepo 'build\wizard_team_app_console.exe'),
         (Join-Path $wizardRepo 'build\wizard_team_app.exe'),
+        (Join-Path $wizardRepo 'build\wizard_team_app_console.exe'),
         (Join-Path $wizardRepo 'build\Release\wizard_team_app.exe'),
         (Join-Path $wizardRepo 'build\Debug\wizard_team_app.exe'),
         (Join-Path $wizardRepo 'build\src\team_app\wizard_team_app.exe'),
