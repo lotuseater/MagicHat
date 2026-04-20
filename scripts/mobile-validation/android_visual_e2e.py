@@ -132,6 +132,12 @@ def build_and_install(serial: str, *, skip_build: bool) -> None:
     adb(serial, "shell", "wm", "dismiss-keyguard", timeout=15)
 
 
+def reset_app_state(serial: str) -> None:
+    adb(serial, "shell", "am", "force-stop", PACKAGE_ID, timeout=15, check=False)
+    adb(serial, "shell", "pm", "clear", PACKAGE_ID, timeout=30, check=False)
+    adb(serial, "shell", "wm", "dismiss-keyguard", timeout=15, check=False)
+
+
 def get_live_local_pairing_code() -> str:
     try:
         with urllib.request.urlopen("http://127.0.0.1:18765/admin/v1/pairing", timeout=5) as response:
@@ -208,16 +214,37 @@ def http_ok(url: str) -> bool:
 
 
 def launch_app(serial: str, *, extras: dict[str, str | bool] | None = None) -> None:
-    adb(serial, "shell", "am", "force-stop", PACKAGE_ID, timeout=15)
-    cmd = [ADB, "-s", serial, "shell", "am", "start", "-W", "-n", MAIN_ACTIVITY]
+    launch_args = [ADB, "-s", serial, "shell", "am", "start", "-W", "-n", MAIN_ACTIVITY]
     for key, value in (extras or {}).items():
         if isinstance(value, bool):
-            cmd.extend(["--ez", key, "true" if value else "false"])
+            launch_args.extend(["--ez", key, "true" if value else "false"])
         else:
-            cmd.extend(["--es", key, value])
-    run(cmd, timeout=30)
+            launch_args.extend(["--es", key, value])
+
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        adb(serial, "shell", "am", "force-stop", PACKAGE_ID, timeout=15, check=False)
+        adb(serial, "shell", "wm", "dismiss-keyguard", timeout=15, check=False)
+        try:
+            run(launch_args, timeout=90)
+            adb(serial, "shell", "input", "keyevent", "82", timeout=15, check=False)
+            time.sleep(1)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt == 3:
+                break
+            time.sleep(3)
+
+    fallback_args = [ADB, "-s", serial, "shell", "am", "start", "-n", MAIN_ACTIVITY]
+    for key, value in (extras or {}).items():
+        if isinstance(value, bool):
+            fallback_args.extend(["--ez", key, "true" if value else "false"])
+        else:
+            fallback_args.extend(["--es", key, value])
+    run(fallback_args, timeout=30)
     adb(serial, "shell", "input", "keyevent", "82", timeout=15, check=False)
-    time.sleep(1)
+    time.sleep(2)
 
 
 def dump_ui(serial: str, target: Path, *, attempts: int = 3) -> ET.Element:
@@ -293,6 +320,17 @@ def tap_content_desc(serial: str, root: ET.Element, content_desc: str, *, occurr
     x, y = center(bounds)
     adb(serial, "shell", "input", "tap", str(x), str(y), timeout=15)
     time.sleep(1)
+
+
+def maybe_tap_text(serial: str, root: ET.Element, text: str, *, occurrence: int = -1) -> bool:
+    matches = find_nodes(root, text=text)
+    if not matches:
+        return False
+    bounds = parse_bounds(matches[occurrence].attrib["bounds"])
+    x, y = center(bounds)
+    adb(serial, "shell", "input", "tap", str(x), str(y), timeout=15)
+    time.sleep(1)
+    return True
 
 
 def wait_for_text(serial: str, text: str, ui_path: Path, *, timeout_s: float = 60.0) -> ET.Element:
@@ -496,6 +534,7 @@ def run_flow(args: argparse.Namespace) -> dict:
             raise HarnessError("MagicHat host health endpoint did not respond")
 
         build_and_install(serial, skip_build=args.skip_build)
+        reset_app_state(serial)
 
         launch_app(serial)
         wait_for_text(serial, "Pair New Host", run_root / "screenshots" / "wait-hosts.xml", timeout_s=90.0)
@@ -529,6 +568,9 @@ def run_flow(args: argparse.Namespace) -> dict:
             timeout_s=20.0,
         )
         tap_content_desc(serial, pair_root, "pair-lan-host-button")
+        post_pair_root = dump_ui(serial, run_root / "screenshots" / "after-pair.xml")
+        if not find_nodes(post_pair_root, text="Start Session"):
+            maybe_tap_text(serial, post_pair_root, "Sessions")
         wait_for_text(serial, "Start Session", run_root / "screenshots" / "wait-sessions.xml", timeout_s=90.0)
         result["steps"].append(capture_step(serial, run_root, "04_sessions_paired", "Host paired over LAN through the visible UI and Sessions loaded."))
 
