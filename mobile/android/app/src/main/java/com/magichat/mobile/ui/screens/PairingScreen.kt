@@ -31,6 +31,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.common.api.CommonStatusCodes
@@ -246,11 +248,20 @@ fun PairingScreen(
                         )
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = onDiscover, enabled = state.isLoading.not()) {
+                            OutlinedButton(
+                                onClick = onDiscover,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "probe-host-button"
+                                },
+                                enabled = state.isLoading.not(),
+                            ) {
                                 Text("Probe Host")
                             }
                             Button(
                                 onClick = { state.discoveredHosts.firstOrNull()?.hostId?.let(onPair) },
+                                modifier = Modifier.semantics {
+                                    contentDescription = "pair-lan-host-button"
+                                },
                                 enabled = state.isLoading.not() &&
                                     state.discoveredHosts.isNotEmpty() &&
                                     state.pairCodeInput.isNotBlank(),

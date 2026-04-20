@@ -222,6 +222,75 @@ class MagicHatRepositoryRemotePairingTest {
         assertThat(launchCalls).isEqualTo(1)
     }
 
+    @Test
+    fun pairHostUsesAndroidDeviceIdentityForLanPairing() = runBlocking {
+        val requests = mutableListOf<RecordedRequest>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requests += request
+                return when {
+                    request.method == "GET" && request.path == "/healthz" -> {
+                        MockResponse().setResponseCode(200).setBody("""{"status":"ok"}""")
+                    }
+
+                    request.method == "POST" && request.path == "/v1/pairing/session" -> {
+                        MockResponse()
+                            .setResponseCode(201)
+                            .setBody(
+                                """
+                                {
+                                  "session_token": "lan_token",
+                                  "expires_at": "2026-04-20T18:30:00Z",
+                                  "host_id": "host_123",
+                                  "host_name": "Desk PC"
+                                }
+                                """.trimIndent(),
+                            )
+                    }
+
+                    request.method == "GET" && request.path == "/v1/host" -> {
+                        MockResponse()
+                            .setResponseCode(200)
+                            .setBody(
+                                """
+                                {
+                                  "host_id": "host_123",
+                                  "host_name": "Desk PC",
+                                  "lan_address": "127.0.0.1",
+                                  "api_version": "test"
+                                }
+                                """.trimIndent(),
+                            )
+                    }
+
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+
+        val deviceKeyStore = InMemoryDeviceKeyStore()
+        val store = InMemoryPairingStore()
+        val repository = MagicHatRepository(
+            pairingStore = store,
+            deviceKeyStore = deviceKeyStore,
+            apiFactory = MagicHatApiFactory(),
+        )
+
+        val paired = repository.pairHost(
+            baseUrl = server.url("/").toString(),
+            hostId = "team-app-host",
+            pairingCode = "123456",
+            deviceName = "MagicHat Android",
+        )
+
+        val pairRequestBody = requests.first { it.path == "/v1/pairing/session" }.body.readUtf8()
+        assertThat(pairRequestBody).contains(""""device_id":"${deviceKeyStore.getOrCreate().deviceId}"""")
+        assertThat(pairRequestBody).doesNotContain("team-app-host")
+        assertThat(paired.deviceId).isEqualTo(deviceKeyStore.getOrCreate().deviceId)
+        assertThat(store.readSnapshot().activeHostId).isEqualTo("host_123")
+    }
+
     private fun pairUri(relayBaseUrl: String): String {
         val expiresAt = Instant.now().plusSeconds(600).toString()
         return buildString {
@@ -274,6 +343,8 @@ class MagicHatRepositoryRemotePairingTest {
             deviceId = "android-test",
             publicKeyBase64 = Base64.getEncoder().encodeToString(keyPair.public.encoded),
         )
+
+        override fun getOrCreateDeviceId(): String = identity.deviceId
 
         override fun getOrCreate(): DeviceIdentity = identity
 

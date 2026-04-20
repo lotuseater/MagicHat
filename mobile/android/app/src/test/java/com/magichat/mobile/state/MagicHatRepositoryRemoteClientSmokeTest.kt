@@ -212,6 +212,8 @@ class MagicHatRepositoryRemoteClientSmokeTest {
             publicKeyBase64 = Base64.getEncoder().encodeToString(keyPair.public.encoded),
         )
 
+        override fun getOrCreateDeviceId(): String = identity.deviceId
+
         override fun getOrCreate(): DeviceIdentity = identity
 
         override fun sign(message: String): String {

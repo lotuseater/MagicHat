@@ -1,6 +1,8 @@
 package com.magichat.mobile.state
 
 import android.content.Context
+import android.content.Intent
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -20,6 +22,7 @@ import com.magichat.mobile.model.TeamModeOption
 import com.magichat.mobile.security.DeviceKeyStore
 import com.magichat.mobile.storage.PairingStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,9 +81,46 @@ data class MagicHatUiState(
     val errorMessage: String? = null,
 )
 
+data class MagicHatAutomationIntent(
+    val lanBaseUrl: String?,
+    val pairingCode: String?,
+    val autoPairLan: Boolean,
+    val launchPrompt: String?,
+    val autoLaunchSession: Boolean,
+) {
+    companion object {
+        private const val EXTRA_LAN_BASE_URL = "magichat.automation.lan_base_url"
+        private const val EXTRA_PAIRING_CODE = "magichat.automation.pairing_code"
+        private const val EXTRA_AUTO_PAIR_LAN = "magichat.automation.auto_pair_lan"
+        private const val EXTRA_LAUNCH_PROMPT = "magichat.automation.launch_prompt"
+        private const val EXTRA_AUTO_LAUNCH_SESSION = "magichat.automation.auto_launch_session"
+
+        fun fromIntent(intent: Intent?): MagicHatAutomationIntent? {
+            intent ?: return null
+            val extras = intent.extras ?: return null
+            val lanBaseUrl = extras.getString(EXTRA_LAN_BASE_URL)?.trim().takeUnless { it.isNullOrBlank() }
+            val pairingCode = extras.getString(EXTRA_PAIRING_CODE)?.trim().takeUnless { it.isNullOrBlank() }
+            val launchPrompt = extras.getString(EXTRA_LAUNCH_PROMPT)?.trim().takeUnless { it.isNullOrBlank() }
+            val autoPairLan = extras.getBoolean(EXTRA_AUTO_PAIR_LAN, false)
+            val autoLaunchSession = extras.getBoolean(EXTRA_AUTO_LAUNCH_SESSION, false)
+            if (lanBaseUrl == null && pairingCode == null && launchPrompt == null && !autoPairLan && !autoLaunchSession) {
+                return null
+            }
+            return MagicHatAutomationIntent(
+                lanBaseUrl = lanBaseUrl,
+                pairingCode = pairingCode,
+                autoPairLan = autoPairLan,
+                launchPrompt = launchPrompt,
+                autoLaunchSession = autoLaunchSession,
+            )
+        }
+    }
+}
+
 class MagicHatViewModel(
     private val repository: MagicHatRepositoryContract,
 ) : ViewModel() {
+    private val logTag = "MagicHatViewModel"
 
     private val _uiState = MutableStateFlow(MagicHatUiState())
     val uiState: StateFlow<MagicHatUiState> = _uiState.asStateFlow()
@@ -162,6 +202,68 @@ class MagicHatViewModel(
 
     fun updatePairCode(value: String) {
         _uiState.update { it.copy(pairCodeInput = value) }
+    }
+
+    fun applyAutomationIntent(automation: MagicHatAutomationIntent) {
+        _uiState.update { state ->
+            state.copy(
+                baseUrlInput = automation.lanBaseUrl ?: state.baseUrlInput,
+                pairCodeInput = automation.pairingCode ?: state.pairCodeInput,
+                lanPairingExpanded = state.lanPairingExpanded || automation.lanBaseUrl != null || automation.autoPairLan,
+                launchTitleInput = automation.launchPrompt ?: state.launchTitleInput,
+                errorMessage = null,
+            )
+        }
+        if (!automation.autoPairLan) {
+            return
+        }
+        launchAction {
+            val current = _uiState.value
+            val baseUrl = automation.lanBaseUrl ?: current.baseUrlInput
+            val pairingCode = automation.pairingCode ?: current.pairCodeInput
+            if (baseUrl.isBlank()) {
+                error("Automation LAN base URL is required")
+            }
+            if (pairingCode.isBlank()) {
+                error("Automation pairing code is required")
+            }
+            val hosts = repository.discoverHosts(baseUrl)
+            if (hosts.isEmpty()) {
+                error("Automation LAN pairing did not discover any hosts")
+            }
+            _uiState.update { it.copy(discoveredHosts = hosts) }
+            repository.pairHost(
+                baseUrl = baseUrl,
+                hostId = hosts.first().hostId,
+                pairingCode = pairingCode,
+                deviceName = "MagicHat Android",
+            )
+            loadCurrentHostData()
+            _uiState.update { it.copy(screen = MagicHatScreen.INSTANCES) }
+
+            val prompt = automation.launchPrompt ?: _uiState.value.launchTitleInput
+            if (automation.autoLaunchSession && !prompt.isNullOrBlank()) {
+                val detail = repository.launchInstance(
+                    title = prompt,
+                    teamMode = _uiState.value.launchTeamMode,
+                    launcherPreset = _uiState.value.launchLauncherPreset,
+                    fenrusLauncher = _uiState.value.launchFenrusLauncher,
+                )
+                val instances = repository.listInstances()
+                val restoreRefs = repository.listKnownRestoreRefs()
+                _uiState.update {
+                    it.copy(
+                        instances = instances,
+                        knownRestoreRefs = restoreRefs,
+                        selectedInstanceId = detail.instance.instanceId,
+                        selectedDetail = detail,
+                        selectedTerminalAgent = preferredTerminalAgent(detail, it.selectedTerminalAgent),
+                        screen = MagicHatScreen.INSTANCE_DETAIL,
+                    )
+                }
+                subscribeToInstance(detail.instance.instanceId)
+            }
+        }
     }
 
     fun toggleLanPairingExpanded() {
@@ -835,11 +937,12 @@ class MagicHatViewModel(
     }
 
     private fun launchAction(block: suspend () -> Unit) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             runCatching {
                 block()
             }.onFailure { throwable ->
+                Log.e(logTag, "Action failed", throwable)
                 _uiState.update {
                     it.copy(errorMessage = throwable.message ?: "Unknown error")
                 }
@@ -849,7 +952,7 @@ class MagicHatViewModel(
     }
 
     private fun launchBackgroundRefresh(block: suspend () -> Unit) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 block()
             }.onFailure { throwable ->

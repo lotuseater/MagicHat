@@ -152,12 +152,13 @@ class MagicHatRepository(
     ): PairedHostRecord {
         val normalizedBaseUrl = normalizeBaseUrl(baseUrl)
         val api = apiFactory.create(normalizedBaseUrl) { null }
+        val deviceId = deviceKeyStore.getOrCreateDeviceId()
         val result = withTransportRetry {
             api.pairHost(
                 PairRequest(
                     pairingCode = pairingCode,
                     deviceName = deviceName,
-                    deviceId = hostId,
+                    deviceId = deviceId,
                 ),
             )
         }
@@ -174,6 +175,7 @@ class MagicHatRepository(
             sessionToken = result.sessionToken,
             pairedAt = Instant.now().toString(),
             mode = HostConnectionMode.LAN_DIRECT.name.lowercase(),
+            deviceId = deviceId,
         )
         pairingStore.upsert(record)
         return record

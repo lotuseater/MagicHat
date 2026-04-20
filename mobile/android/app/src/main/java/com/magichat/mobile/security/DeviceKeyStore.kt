@@ -9,7 +9,9 @@ import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.PrivateKey
 import java.security.PublicKey
+import java.security.Security
 import java.security.Signature
+import java.security.spec.NamedParameterSpec
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 
@@ -19,6 +21,7 @@ data class DeviceIdentity(
 )
 
 interface DeviceKeyStoreContract {
+    fun getOrCreateDeviceId(): String
     fun getOrCreate(): DeviceIdentity
     fun sign(message: String): String
     fun clear()
@@ -27,34 +30,48 @@ interface DeviceKeyStoreContract {
 class DeviceKeyStore(
     context: Context,
 ) : DeviceKeyStoreContract {
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "magichat_remote_keys",
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    private val appContext = context.applicationContext
+    private val prefs by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        EncryptedSharedPreferences.create(
+            appContext,
+            "magichat_remote_keys",
+            MasterKey.Builder(appContext).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
+
+    override fun getOrCreateDeviceId(): String {
+        val existingDeviceId = prefs.getString(KEY_DEVICE_ID, null)
+        if (!existingDeviceId.isNullOrBlank()) {
+            return existingDeviceId
+        }
+
+        val deviceId = "android-${java.util.UUID.randomUUID()}"
+        prefs.edit()
+            .putString(KEY_DEVICE_ID, deviceId)
+            .apply()
+        return deviceId
+    }
 
     override fun getOrCreate(): DeviceIdentity {
+        val deviceId = getOrCreateDeviceId()
         val existingPublic = prefs.getString(KEY_PUBLIC, null)
         val existingPrivate = prefs.getString(KEY_PRIVATE, null)
-        val existingDeviceId = prefs.getString(KEY_DEVICE_ID, null)
-        if (!existingPublic.isNullOrBlank() && !existingPrivate.isNullOrBlank() && !existingDeviceId.isNullOrBlank()) {
+        if (!existingPublic.isNullOrBlank() && !existingPrivate.isNullOrBlank()) {
             return DeviceIdentity(
-                deviceId = existingDeviceId,
+                deviceId = deviceId,
                 publicKeyBase64 = existingPublic,
             )
         }
 
-        val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val keyPair = generateEd25519KeyPair()
         val publicEncoded = encode(keyPair.public.encoded)
         val privateEncoded = encode(keyPair.private.encoded)
-        val deviceId = "android-${java.util.UUID.randomUUID()}"
 
         prefs.edit()
             .putString(KEY_PUBLIC, publicEncoded)
             .putString(KEY_PRIVATE, privateEncoded)
-            .putString(KEY_DEVICE_ID, deviceId)
             .apply()
 
         return DeviceIdentity(deviceId = deviceId, publicKeyBase64 = publicEncoded)
@@ -91,6 +108,35 @@ class DeviceKeyStore(
 
     private fun encodeUrlSafe(bytes: ByteArray): String {
         return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    }
+
+    private fun generateEd25519KeyPair(): java.security.KeyPair {
+        val providers = buildList {
+            add(null)
+            addAll(
+                Security.getProviders()
+                    .map { it.name }
+                    .filterNot { it.equals("AndroidKeyStore", ignoreCase = true) }
+                    .distinct(),
+            )
+        }
+        var lastError: Throwable? = null
+        for (providerName in providers) {
+            try {
+                val generator = if (providerName == null) {
+                    KeyPairGenerator.getInstance("Ed25519")
+                } else {
+                    KeyPairGenerator.getInstance("Ed25519", providerName)
+                }
+                runCatching {
+                    generator.initialize(NamedParameterSpec("Ed25519"))
+                }
+                return generator.generateKeyPair()
+            } catch (throwable: Throwable) {
+                lastError = throwable
+            }
+        }
+        throw IllegalStateException("Unable to generate an Ed25519 device keypair", lastError)
     }
 
     private companion object {

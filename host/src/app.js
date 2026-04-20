@@ -146,6 +146,8 @@ const SAFE_ERROR_CODES = new Set([
   "dispatch_failed",
   "ipc_response_timeout",
   "host_timeout",
+  "timeout_waiting_for_new_instance",
+  "launch_command_not_configured",
 ]);
 
 const BEARER_TOKEN_PATTERN = /Bearer\s+[A-Za-z0-9._~+/=-]+/gi;
@@ -875,6 +877,20 @@ export function createMagicHatRuntime(options = {}) {
   );
 
   app.use("/admin/v2", requireLocalhost);
+  app.use("/admin/v1", requireLocalhost);
+
+  app.get(
+    "/admin/v1/pairing",
+    asyncRoute(async (_req, res) => {
+      const activePairing = pairingManager.getActivePairingCode();
+      res.json({
+        pairing_code: activePairing.code,
+        pairing_expires_at_ms: activePairing.expires_at_ms,
+        host_id: hostInfo.host_id,
+        host_name: hostInfo.host_name,
+      });
+    }),
+  );
 
   app.get(
     "/admin/v2/remote/status",
