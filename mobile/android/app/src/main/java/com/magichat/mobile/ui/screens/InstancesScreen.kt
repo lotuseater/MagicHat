@@ -2,6 +2,7 @@ package com.magichat.mobile.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -95,9 +96,24 @@ fun InstancesScreen(
         onRefresh = onRefresh,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 120.dp),
+        ) {
             item {
                 Text("Sessions", style = MaterialTheme.typography.headlineSmall)
+            }
+
+            item {
+                SessionComposerCard(
+                    state = state,
+                    canRunCommands = canRunCommands,
+                    onLaunchTitleChanged = onLaunchTitleChanged,
+                    onLaunchTeamModeChanged = onLaunchTeamModeChanged,
+                    onLaunchLauncherPresetChanged = onLaunchLauncherPresetChanged,
+                    onLaunchFenrusLauncherChanged = onLaunchFenrusLauncherChanged,
+                    onLaunchInstance = onLaunchInstance,
+                )
             }
 
             item {
@@ -123,18 +139,6 @@ fun InstancesScreen(
                         modifier = Modifier.padding(start = 4.dp, top = 10.dp),
                     )
                 }
-            }
-
-            item {
-                SessionComposerCard(
-                    state = state,
-                    canRunCommands = canRunCommands,
-                    onLaunchTitleChanged = onLaunchTitleChanged,
-                    onLaunchTeamModeChanged = onLaunchTeamModeChanged,
-                    onLaunchLauncherPresetChanged = onLaunchLauncherPresetChanged,
-                    onLaunchFenrusLauncherChanged = onLaunchFenrusLauncherChanged,
-                    onLaunchInstance = onLaunchInstance,
-                )
             }
 
             item {
@@ -220,6 +224,43 @@ private fun SessionComposerCard(
                 enabled = canRunCommands && state.isLoading.not() && state.sessionLaunchInFlight.not(),
             )
 
+            if (!canRunCommands) {
+                Text(
+                    "Host is offline or unreachable. Reconnect to start a new Team App session.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (!hasInitialPrompt) {
+                Text(
+                    "Add the initial prompt first. Startup options below are optional.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    "This launches with the current app defaults. Adjust the optional startup profile below only when needed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Button(
+                onClick = onLaunchInstance,
+                modifier = Modifier.semantics {
+                    contentDescription = "start-session-button"
+                },
+                enabled = canRunCommands && state.isLoading.not()
+                    && state.sessionLaunchInFlight.not()
+                    && hasInitialPrompt,
+            ) {
+                Text(if (state.sessionLaunchInFlight) "Starting..." else "Start Session")
+            }
+
+            Text(
+                "Optional startup profile",
+                style = MaterialTheme.typography.titleSmall,
+            )
+
             LaunchOptionSelector(
                 label = "Team Mode",
                 options = TeamModeOption.entries,
@@ -246,31 +287,6 @@ private fun SessionComposerCard(
                 enabled = canRunCommands && state.isLoading.not(),
                 onSelected = onLaunchFenrusLauncherChanged,
             )
-
-            Button(
-                onClick = onLaunchInstance,
-                modifier = Modifier.semantics {
-                    contentDescription = "start-session-button"
-                },
-                enabled = canRunCommands && state.isLoading.not()
-                    && state.sessionLaunchInFlight.not()
-                    && hasInitialPrompt,
-            ) {
-                Text(if (state.sessionLaunchInFlight) "Starting..." else "Start Session")
-            }
-            if (!canRunCommands) {
-                Text(
-                    "Host is offline — can't start a session right now.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else if (!hasInitialPrompt) {
-                Text(
-                    "Enter an initial prompt to enable Start Session.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
