@@ -177,6 +177,25 @@ describe("/v1/cli-instances", () => {
     expect(detail.body.terminals_by_agent.erasmus).toContain("Working on it");
   });
 
+  it("omits exited CLI sessions from the main /v1/instances API", async () => {
+    const child = fakeChild();
+    const manager = new CliInstancesManager({ spawnImpl: () => child, ptySpawnImpl: null });
+    ctx = await createRuntime({ cliInstancesManager: manager });
+    const token = await pairDevice(ctx);
+
+    const launch = await ctx.http.post("/v1/cli-instances", {
+      token,
+      body: { preset: "codex", title: "single agent visible" },
+    });
+    const id = launch.body.instance_id;
+
+    child.emit("exit", 0, null);
+
+    const list = await ctx.http.get("/v1/instances", { token });
+    expect(list.status).toBe(200);
+    expect(list.body.instances.find((entry) => entry.instance_id === id)).toBeUndefined();
+  });
+
   it("routes prompt and close commands for CLI sessions through the main /v1/instances API", async () => {
     const child = fakeChild();
     const manager = new CliInstancesManager({ spawnImpl: () => child, ptySpawnImpl: null });

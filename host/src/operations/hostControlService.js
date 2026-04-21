@@ -44,6 +44,11 @@ function summarizeHealth(instance) {
   return instance.phase || instance.current_task_state?.phase || "unknown";
 }
 
+function safeNumeric(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 export class HostControlService {
   constructor({
     beaconStore,
@@ -400,10 +405,12 @@ export class HostControlService {
   }
 
   toLanCliInstance(instance) {
+    const pid = safeNumeric(instance.pid, 0);
+    const startedAt = safeNumeric(instance.started_at, 0);
     return {
       id: instance.instance_id,
       instance_id: instance.instance_id,
-      pid: instance.pid,
+      pid,
       hwnd: null,
       session_id: instance.instance_id,
       phase: this.cliPhase(instance),
@@ -413,7 +420,7 @@ export class HostControlService {
         run_mode: "agent",
         launcher_preset: instance.preset,
       },
-      started_at: instance.started_at,
+      started_at: startedAt,
       result_summary: {
         short_text: this.cliShortText(instance),
         source: "cli_output",
@@ -453,6 +460,8 @@ export class HostControlService {
   }
 
   toRemoteCliInstance(instance) {
+    const pid = safeNumeric(instance.pid, 0);
+    const startedAt = safeNumeric(instance.started_at, 0);
     return stripSensitivePaths({
       id: instance.instance_id,
       instance_id: instance.instance_id,
@@ -460,7 +469,7 @@ export class HostControlService {
       active: instance.status === "running" || instance.status === "closing",
       health: this.cliPhase(instance),
       phase: this.cliPhase(instance),
-      pid: instance.pid,
+      pid,
       session_id: instance.instance_id,
       current_task_state: {
         phase: this.cliPhase(instance),
@@ -468,7 +477,7 @@ export class HostControlService {
         run_mode: "agent",
         launcher_preset: instance.preset,
       },
-      started_at: instance.started_at,
+      started_at: startedAt,
       result_summary: {
         short_text: this.cliShortText(instance),
         source: "cli_output",
@@ -509,7 +518,8 @@ export class HostControlService {
     if (!this.cliInstancesManager) {
       return [];
     }
-    return this.cliInstancesManager.listInstances();
+    const instances = await this.cliInstancesManager.listInstances();
+    return instances.filter((instance) => instance?.status === "running" || instance?.status === "closing");
   }
 
   getCliInstance(instanceId) {
