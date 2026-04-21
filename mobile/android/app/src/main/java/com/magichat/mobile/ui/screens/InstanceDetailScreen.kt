@@ -34,6 +34,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -122,10 +124,18 @@ fun InstanceDetailScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onTrustApproved, enabled = state.isLoading.not() && canRunCommands) {
+                            Button(
+                                onClick = onTrustApproved,
+                                modifier = Modifier.semantics { contentDescription = "trust-approve-button" },
+                                enabled = state.isLoading.not() && canRunCommands,
+                            ) {
                                 Text("Trust Project")
                             }
-                            OutlinedButton(onClick = onTrustDenied, enabled = state.isLoading.not() && canRunCommands) {
+                            OutlinedButton(
+                                onClick = onTrustDenied,
+                                modifier = Modifier.semantics { contentDescription = "trust-deny-button" },
+                                enabled = state.isLoading.not() && canRunCommands,
+                            ) {
                                 Text("Deny")
                             }
                         }
@@ -153,6 +163,14 @@ fun InstanceDetailScreen(
                     Tab(
                         selected = activeTab == tab,
                         onClick = { activeTabOrdinal = tab.ordinal },
+                        modifier = Modifier.semantics {
+                            contentDescription = when (tab) {
+                                DetailTab.OVERVIEW -> "detail-tab-overview"
+                                DetailTab.CHAT -> "detail-tab-chat"
+                                DetailTab.TEAM -> "detail-tab-team"
+                                DetailTab.STREAM -> "detail-tab-stream"
+                            }
+                        },
                         text = { Text(tab.label) },
                     )
                 }
@@ -221,25 +239,37 @@ private fun PromptActionsCard(
             OutlinedTextField(
                 value = state.promptInput,
                 onValueChange = onPromptChanged,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "detail-prompt-input" },
                 label = { Text("New prompt") },
                 placeholder = { Text("Start a new task on this session") },
                 minLines = 2,
                 enabled = state.selectedInstanceId != null && state.isLoading.not() && canRunCommands,
             )
-            Button(onClick = onSendPrompt, enabled = canSendPrompt) {
+            Button(
+                onClick = onSendPrompt,
+                modifier = Modifier.semantics { contentDescription = "detail-send-prompt-button" },
+                enabled = canSendPrompt,
+            ) {
                 Text("Send Prompt")
             }
 
             OutlinedTextField(
                 value = state.followUpInput,
                 onValueChange = onFollowUpChanged,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "detail-follow-up-input" },
                 label = { Text("Follow-up") },
                 minLines = 2,
                 enabled = state.selectedInstanceId != null && state.isLoading.not() && canRunCommands,
             )
-            Button(onClick = onSendFollowUp, enabled = canSendFollowUp) {
+            Button(
+                onClick = onSendFollowUp,
+                modifier = Modifier.semantics { contentDescription = "detail-send-follow-up-button" },
+                enabled = canSendFollowUp,
+            ) {
                 Text("Send Follow-up")
             }
         }

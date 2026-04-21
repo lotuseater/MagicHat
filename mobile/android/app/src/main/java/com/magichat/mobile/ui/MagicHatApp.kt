@@ -27,6 +27,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.magichat.mobile.state.MagicHatScreen
 import com.magichat.mobile.state.MagicHatViewModel
@@ -71,12 +73,14 @@ fun MagicHatApp(
                 NavigationBarItem(
                     selected = uiState.screen == MagicHatScreen.PAIRED_PC_SELECTION,
                     onClick = { viewModel.navigateTo(MagicHatScreen.PAIRED_PC_SELECTION) },
+                    modifier = Modifier.semantics { contentDescription = "nav-hosts" },
                     icon = { Icon(Icons.Outlined.Computer, contentDescription = null) },
                     label = { Text("Hosts") },
                 )
                 NavigationBarItem(
                     selected = uiState.screen == MagicHatScreen.INSTANCES,
                     onClick = { viewModel.navigateTo(MagicHatScreen.INSTANCES) },
+                    modifier = Modifier.semantics { contentDescription = "nav-sessions" },
                     icon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
                     label = { Text("Sessions") },
                 )
@@ -90,6 +94,7 @@ fun MagicHatApp(
                             viewModel.clearError()
                         }
                     },
+                    modifier = Modifier.semantics { contentDescription = "nav-session-detail" },
                     icon = { Icon(Icons.Outlined.Terminal, contentDescription = null) },
                     enabled = uiState.selectedInstanceId != null,
                     label = { Text("Session") },
@@ -97,6 +102,7 @@ fun MagicHatApp(
                 NavigationBarItem(
                     selected = uiState.screen == MagicHatScreen.BROWSER,
                     onClick = { viewModel.navigateTo(MagicHatScreen.BROWSER) },
+                    modifier = Modifier.semantics { contentDescription = "nav-browser" },
                     icon = { Icon(Icons.Outlined.Language, contentDescription = null) },
                     label = { Text("Browser") },
                 )

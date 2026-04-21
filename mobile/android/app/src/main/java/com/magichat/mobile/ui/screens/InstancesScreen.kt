@@ -217,7 +217,9 @@ private fun SessionComposerCard(
             OutlinedTextField(
                 value = state.launchTitleInput,
                 onValueChange = onLaunchTitleChanged,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "start-session-prompt-input" },
                 label = { Text("Initial prompt") },
                 placeholder = { Text("Describe the task for the team") },
                 minLines = 3,
@@ -320,13 +322,16 @@ private fun RestoreSessionCard(
                 OutlinedTextField(
                     value = state.restoreSessionInput,
                     onValueChange = onRestoreSessionChanged,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { contentDescription = "restore-session-input" },
                     label = { Text("Restore Ref / Session") },
                     singleLine = true,
                     enabled = canRunCommands && state.isLoading.not(),
                 )
                 Button(
                     onClick = onRestoreSession,
+                    modifier = Modifier.semantics { contentDescription = "restore-session-button" },
                     enabled = canRunCommands && state.restoreSessionInput.isNotBlank() && state.isLoading.not(),
                 ) {
                     Text("Restore")
@@ -473,10 +478,18 @@ private fun SessionRow(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onOpen, enabled = enabled && !selected) {
+                Button(
+                    onClick = onOpen,
+                    modifier = Modifier.semantics { contentDescription = "open-session-button-${instance.instanceId}" },
+                    enabled = enabled && !selected,
+                ) {
                     Text(if (selected) "Open" else "View")
                 }
-                OutlinedButton(onClick = onCloseRequested, enabled = enabled) {
+                OutlinedButton(
+                    onClick = onCloseRequested,
+                    modifier = Modifier.semantics { contentDescription = "close-session-button-${instance.instanceId}" },
+                    enabled = enabled,
+                ) {
                     Text("Close")
                 }
             }

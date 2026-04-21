@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -250,18 +251,23 @@ def launch_app(serial: str, *, extras: dict[str, str | bool] | None = None) -> N
 def dump_ui(serial: str, target: Path, *, attempts: int = 3) -> ET.Element:
     target.parent.mkdir(parents=True, exist_ok=True)
     last_error: Exception | None = None
-    for attempt in range(1, attempts + 1):
+    max_attempts = max(attempts, 6)
+    for attempt in range(1, max_attempts + 1):
         try:
             adb(serial, "shell", "uiautomator", "dump", "/sdcard/window_dump.xml", timeout=30)
             xml_text = adb(serial, "shell", "cat", "/sdcard/window_dump.xml", timeout=30).stdout
+            root = ET.fromstring(xml_text)
+            if dismiss_system_dialogs(serial, root):
+                time.sleep(2)
+                continue
             target.write_text(xml_text, encoding="utf-8")
-            return ET.fromstring(xml_text)
+            return root
         except Exception as exc:  # noqa: BLE001
             last_error = exc
-            if attempt == attempts:
+            if attempt == max_attempts:
                 break
             time.sleep(2)
-    raise HarnessError(f"uiautomator dump failed after {attempts} attempts: {last_error}")
+    raise HarnessError(f"uiautomator dump failed after {max_attempts} attempts: {last_error}")
 
 
 def screencap(serial: str, target: Path) -> None:
@@ -302,6 +308,14 @@ def find_nodes_by_content_desc(root: ET.Element, content_desc: str) -> list[ET.E
     return [node for node in root.iter("node") if (node.attrib.get("content-desc") or "").strip() == needle]
 
 
+def find_nodes_by_content_desc_prefix(root: ET.Element, prefix: str) -> list[ET.Element]:
+    needle = prefix.strip()
+    return [
+        node for node in root.iter("node")
+        if needle and (node.attrib.get("content-desc") or "").strip().startswith(needle)
+    ]
+
+
 def tap_text(serial: str, root: ET.Element, text: str, *, occurrence: int = -1) -> None:
     matches = find_nodes(root, text=text)
     if not matches:
@@ -322,6 +336,18 @@ def tap_content_desc(serial: str, root: ET.Element, content_desc: str, *, occurr
     time.sleep(1)
 
 
+def tap_content_desc_prefix(serial: str, root: ET.Element, prefix: str, *, occurrence: int = -1) -> str:
+    matches = find_nodes_by_content_desc_prefix(root, prefix)
+    if not matches:
+        raise HarnessError(f"UI content-desc prefix not found: {prefix!r}")
+    match = matches[occurrence]
+    bounds = parse_bounds(match.attrib["bounds"])
+    x, y = center(bounds)
+    adb(serial, "shell", "input", "tap", str(x), str(y), timeout=15)
+    time.sleep(1)
+    return match.attrib.get("content-desc", "")
+
+
 def maybe_tap_text(serial: str, root: ET.Element, text: str, *, occurrence: int = -1) -> bool:
     matches = find_nodes(root, text=text)
     if not matches:
@@ -331,6 +357,40 @@ def maybe_tap_text(serial: str, root: ET.Element, text: str, *, occurrence: int 
     adb(serial, "shell", "input", "tap", str(x), str(y), timeout=15)
     time.sleep(1)
     return True
+
+
+def maybe_tap_text_containing(serial: str, root: ET.Element, text: str, *, occurrence: int = -1) -> bool:
+    matches = find_nodes_containing(root, text=text)
+    if not matches:
+        return False
+    bounds = parse_bounds(matches[occurrence].attrib["bounds"])
+    x, y = center(bounds)
+    adb(serial, "shell", "input", "tap", str(x), str(y), timeout=15)
+    time.sleep(1)
+    return True
+
+
+def maybe_tap_content_desc(serial: str, root: ET.Element, content_desc: str, *, occurrence: int = -1) -> bool:
+    matches = find_nodes_by_content_desc(root, content_desc)
+    if not matches:
+        return False
+    bounds = parse_bounds(matches[occurrence].attrib["bounds"])
+    x, y = center(bounds)
+    adb(serial, "shell", "input", "tap", str(x), str(y), timeout=15)
+    time.sleep(1)
+    return True
+
+
+def dismiss_system_dialogs(serial: str, root: ET.Element) -> bool:
+    if root.attrib.get("package") == "android" or any((node.attrib.get("package") or "") == "android" for node in root.iter("node")):
+        if find_nodes_containing(root, text="isn't responding"):
+            if maybe_tap_text(serial, root, "Wait"):
+                time.sleep(2)
+                return True
+            if maybe_tap_text(serial, root, "Close app"):
+                time.sleep(2)
+                return True
+    return False
 
 
 def wait_for_text(serial: str, text: str, ui_path: Path, *, timeout_s: float = 60.0) -> ET.Element:
@@ -343,10 +403,30 @@ def wait_for_text(serial: str, text: str, ui_path: Path, *, timeout_s: float = 6
             last_error = exc
             time.sleep(1)
             continue
+        if dismiss_system_dialogs(serial, root):
+            continue
         if find_nodes(root, text=text):
             return root
         time.sleep(1)
     raise HarnessError(f"UI text {text!r} did not appear; last_error={last_error}")
+
+
+def wait_for_content_desc(serial: str, content_desc: str, ui_path: Path, *, timeout_s: float = 60.0) -> ET.Element:
+    deadline = time.time() + timeout_s
+    last_error = None
+    while time.time() < deadline:
+        try:
+            root = dump_ui(serial, ui_path)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            time.sleep(1)
+            continue
+        if dismiss_system_dialogs(serial, root):
+            continue
+        if find_nodes_by_content_desc(root, content_desc):
+            return root
+        time.sleep(1)
+    raise HarnessError(f"UI content-desc {content_desc!r} did not appear; last_error={last_error}")
 
 
 def wait_for_any_text(serial: str, texts: list[str], ui_path: Path, *, timeout_s: float = 60.0) -> tuple[ET.Element, str]:
@@ -359,6 +439,8 @@ def wait_for_any_text(serial: str, texts: list[str], ui_path: Path, *, timeout_s
             last_error = exc
             time.sleep(1)
             continue
+        if dismiss_system_dialogs(serial, root):
+            continue
         for text in texts:
             if find_nodes(root, text=text) or find_nodes_containing(root, text=text):
                 return root, text
@@ -366,14 +448,97 @@ def wait_for_any_text(serial: str, texts: list[str], ui_path: Path, *, timeout_s
     raise HarnessError(f"None of the UI texts appeared: {texts}; last_error={last_error}")
 
 
+def adb_input_text(serial: str, text: str) -> None:
+    normalized = re.sub(r"\s+", "%s", text.strip())
+    normalized = re.sub(r"[^A-Za-z0-9%._:/-]", "", normalized)
+    if not normalized:
+        raise HarnessError(f"Unable to enter empty/unsupported text: {text!r}")
+    adb(serial, "shell", "input", "text", normalized, timeout=20)
+    time.sleep(1)
+
+
+def focus_and_type(serial: str, root: ET.Element, content_desc: str, text: str) -> None:
+    tap_content_desc(serial, root, content_desc)
+    adb_input_text(serial, text)
+
+
+def wait_for_detail_prompt_ready(serial: str, ui_path: Path, *, timeout_s: float = 45.0) -> ET.Element:
+    deadline = time.time() + timeout_s
+    last_error = None
+    while time.time() < deadline:
+        try:
+            root = dump_ui(serial, ui_path)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            time.sleep(1)
+            continue
+        if dismiss_system_dialogs(serial, root):
+            continue
+        if find_nodes_by_content_desc(root, "detail-prompt-input") or find_nodes(root, text="New prompt"):
+            return root
+        if find_nodes_by_content_desc(root, "detail-tab-overview"):
+            maybe_tap_content_desc(serial, root, "detail-tab-overview")
+        time.sleep(1)
+    raise HarnessError(f"Session detail prompt editor did not become ready; last_error={last_error}")
+
+
+def runtime_entries() -> list[dict]:
+    try:
+        entries = beacon_entries()
+    except Exception:
+        return []
+    return [
+        entry for entry in entries
+        if int(entry.get("hwnd") or 0) == 0 and entry.get("cmd_path")
+    ]
+
+
+def wait_for_new_runtime_entry(previous_ids: set[str], *, timeout_s: float = 120.0) -> dict:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            entries = runtime_entries()
+        except Exception:
+            entries = []
+        for entry in entries:
+            instance_id = str(entry.get("instance_id") or "")
+            if instance_id and instance_id not in previous_ids:
+                return entry
+        time.sleep(1)
+    raise HarnessError("No new Team App runtime beacon entry appeared")
+
+
+def wait_for_runtime_entry_absent(instance_id: str, *, timeout_s: float = 90.0) -> None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        ids = {str(entry.get("instance_id") or "") for entry in runtime_entries()}
+        if instance_id not in ids:
+            return
+        time.sleep(1)
+    raise HarnessError(f"Runtime beacon entry did not disappear: {instance_id}")
+
+
 def scroll_until_text(serial: str, text: str, ui_path: Path, *, timeout_s: float = 30.0) -> ET.Element:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         root = dump_ui(serial, ui_path)
-        if find_nodes(root, text=text):
+        if find_nodes(root, text=text) or find_nodes_containing(root, text=text):
             return root
         swipe(serial, 540, 1900, 540, 1250)
     raise HarnessError(f"UI text {text!r} did not become visible after scrolling")
+
+
+def scroll_until_any_text(serial: str, texts: list[str], ui_path: Path, *, timeout_s: float = 30.0) -> tuple[ET.Element, str]:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        root = dump_ui(serial, ui_path)
+        if dismiss_system_dialogs(serial, root):
+            continue
+        for text in texts:
+            if find_nodes(root, text=text) or find_nodes_containing(root, text=text):
+                return root, text
+        swipe(serial, 540, 1850, 540, 1100)
+    raise HarnessError(f"UI texts {texts!r} did not become visible after scrolling")
 
 
 def scroll_until_content_desc(
@@ -387,6 +552,8 @@ def scroll_until_content_desc(
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         root = dump_ui(serial, ui_path)
+        if dismiss_system_dialogs(serial, root):
+            continue
         matches = find_nodes_by_content_desc(root, content_desc)
         if matches:
             left, top, right, bottom = parse_bounds(matches[-1].attrib["bounds"])
@@ -394,6 +561,61 @@ def scroll_until_content_desc(
                 return root
         swipe(serial, 540, 1900, 540, 1250)
     raise HarnessError(f"UI content-desc {content_desc!r} did not become visible after scrolling")
+
+
+def scroll_until_content_desc_prefix(serial: str, prefix: str, ui_path: Path, *, timeout_s: float = 30.0) -> ET.Element:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        root = dump_ui(serial, ui_path)
+        if dismiss_system_dialogs(serial, root):
+            continue
+        if find_nodes_by_content_desc_prefix(root, prefix):
+            return root
+        swipe(serial, 540, 1850, 540, 1100)
+    raise HarnessError(f"UI content-desc prefix {prefix!r} did not become visible after scrolling")
+
+
+def wait_for_open_sessions(serial: str, ui_path: Path, *, timeout_s: float = 45.0) -> ET.Element:
+    deadline = time.time() + timeout_s
+    refreshed = False
+    while time.time() < deadline:
+        root = dump_ui(serial, ui_path)
+        if dismiss_system_dialogs(serial, root):
+            continue
+        if find_nodes_by_content_desc_prefix(root, "close-session-button-") or find_nodes_by_content_desc_prefix(root, "open-session-button-"):
+            return root
+        empty_state = find_nodes_containing(root, text="does not currently expose any open Team App sessions")
+        if not refreshed or empty_state:
+            if maybe_tap_text(serial, root, " Refresh") or maybe_tap_text(serial, root, "Refresh"):
+                refreshed = True
+                time.sleep(3)
+                continue
+        swipe(serial, 540, 1850, 540, 1100)
+    raise HarnessError("Open session rows did not become visible")
+
+
+def ensure_active_host_selected(serial: str, run_root: Path) -> ET.Element:
+    sessions_root = dump_ui(serial, run_root / "screenshots" / "ensure-active-host-sessions.xml")
+    offline = find_nodes_containing(sessions_root, text="Host is offline or unreachable")
+    no_host = find_nodes_containing(sessions_root, text="No host selected")
+    if not offline and not no_host:
+        return sessions_root
+
+    tap_content_desc(serial, sessions_root, "nav-hosts")
+    wait_for_text(serial, "Saved Hosts", run_root / "screenshots" / "wait-saved-hosts.xml", timeout_s=60.0)
+    hosts_root = scroll_until_any_text(
+        serial,
+        ["Use", "Selected"],
+        run_root / "screenshots" / "wait-host-use.xml",
+        timeout_s=45.0,
+    )[0]
+    if not maybe_tap_text(serial, hosts_root, "Use"):
+        maybe_tap_text(serial, hosts_root, "Selected")
+    tap_content_desc(serial, dump_ui(serial, run_root / "screenshots" / "return-to-sessions.xml"), "nav-sessions")
+    refreshed_root = wait_for_text(serial, "Sessions", run_root / "screenshots" / "wait-sessions-after-host-select.xml", timeout_s=60.0)
+    if find_nodes_containing(refreshed_root, text="No host selected"):
+        raise HarnessError("Saved host selection did not activate a host for Sessions")
+    return refreshed_root
 
 
 def capture_step(serial: str, run_root: Path, name: str, note: str) -> dict[str, str]:
@@ -417,13 +639,31 @@ def capture_step(serial: str, run_root: Path, name: str, note: str) -> dict[str,
 
 
 def beacon_entries() -> list[dict]:
-    if not BEACON_PATH.exists():
-        raise HarnessError(f"beacon file not found: {BEACON_PATH}")
-    entries = json.loads(BEACON_PATH.read_text(encoding="utf-8"))
-    if not isinstance(entries, list) or not entries:
-        raise HarnessError("beacon file is empty")
-    entries.sort(key=lambda item: int(item.get("heartbeat_ts") or 0), reverse=True)
-    return entries
+    deadline = time.time() + 30
+    last_error = "beacon file is empty"
+    while time.time() < deadline:
+        if not BEACON_PATH.exists():
+            last_error = f"beacon file not found: {BEACON_PATH}"
+            time.sleep(1)
+            continue
+        try:
+            raw = BEACON_PATH.read_text(encoding="utf-8").strip()
+            if not raw:
+                last_error = "beacon file is empty"
+                time.sleep(1)
+                continue
+            entries = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            last_error = f"beacon file is not valid JSON yet: {exc}"
+            time.sleep(1)
+            continue
+        if not isinstance(entries, list) or not entries:
+            last_error = "beacon file is empty"
+            time.sleep(1)
+            continue
+        entries.sort(key=lambda item: int(item.get("heartbeat_ts") or 0), reverse=True)
+        return entries
+    raise HarnessError(last_error)
 
 
 def latest_beacon_entry() -> dict:
@@ -480,24 +720,37 @@ def send_team_app_command(instance: dict, command: dict, *, timeout_s: float = 3
 
 
 def capture_team_app(runtime_entry: dict, run_root: Path, name: str) -> dict[str, str]:
-    capture_entry = capture_partner_for(runtime_entry)
-    bmp_path = run_root / "screenshots" / f"{name}-team-app.bmp"
     inspect_path = run_root / "screenshots" / f"{name}-team-app-inspect.json"
-    capture = send_team_app_command(capture_entry, {"cmd": "capture_window", "path": str(bmp_path)})
-    if capture.get("status") != "ok" or not bmp_path.exists():
-        raise HarnessError(f"Team App capture failed: {capture}")
     inspect = send_team_app_command(
         runtime_entry,
         {"cmd": "inspect", "include_chat": True, "include_summary": True, "include_terminals": True},
         timeout_s=45.0,
     )
     inspect_path.write_text(json.dumps(inspect, indent=2), encoding="utf-8")
-    return {
-        "team_app_capture_path": str(bmp_path),
+    payload = {
         "team_app_inspect_path": str(inspect_path),
-        "team_app_capture_instance_id": str(capture_entry.get("instance_id") or ""),
         "team_app_runtime_instance_id": str(runtime_entry.get("instance_id") or ""),
     }
+    try:
+        capture_entry = capture_partner_for(runtime_entry)
+        bmp_path = run_root / "screenshots" / f"{name}-team-app.bmp"
+        capture = send_team_app_command(capture_entry, {"cmd": "capture_window", "path": str(bmp_path)})
+        if capture.get("status") == "ok" and bmp_path.exists():
+            payload["team_app_capture_path"] = str(bmp_path)
+            payload["team_app_capture_instance_id"] = str(capture_entry.get("instance_id") or "")
+        else:
+            payload["team_app_capture_error"] = f"capture_window failed: {capture}"
+    except Exception as exc:  # noqa: BLE001
+        payload["team_app_capture_error"] = str(exc)
+    return payload
+
+
+def inspect_runtime(runtime_entry: dict) -> dict:
+    return send_team_app_command(
+        runtime_entry,
+        {"cmd": "inspect", "include_chat": True, "include_summary": True, "include_terminals": True},
+        timeout_s=45.0,
+    )
 
 
 def cleanup_screenshots(run_root: Path) -> None:
@@ -537,7 +790,12 @@ def run_flow(args: argparse.Namespace) -> dict:
         reset_app_state(serial)
 
         launch_app(serial)
-        wait_for_text(serial, "Pair New Host", run_root / "screenshots" / "wait-hosts.xml", timeout_s=90.0)
+        try:
+            wait_for_text(serial, "Pair New Host", run_root / "screenshots" / "wait-hosts.xml", timeout_s=90.0)
+        except Exception:
+            reset_app_state(serial)
+            launch_app(serial)
+            wait_for_text(serial, "Pair New Host", run_root / "screenshots" / "wait-hosts-retry.xml", timeout_s=90.0)
         result["steps"].append(capture_step(serial, run_root, "01_hosts_initial", "Fresh app launch on the Hosts screen after the splash screen clears."))
 
         launch_app(
@@ -545,75 +803,185 @@ def run_flow(args: argparse.Namespace) -> dict:
             extras={
                 "magichat.automation.lan_base_url": base_url,
                 "magichat.automation.pairing_code": pairing_code,
-                "magichat.automation.launch_prompt": args.prompt,
             },
         )
         wait_for_text(serial, "Advanced LAN Pairing", run_root / "screenshots" / "wait-lan-ready.xml", timeout_s=90.0)
         result["steps"].append(capture_step(serial, run_root, "02_lan_prefilled", "LAN pairing fields prefilled by automation extras before any UI interaction."))
 
-        lan_root = scroll_until_content_desc(
+        lan_root = dump_ui(serial, run_root / "screenshots" / "lan-before-expand.xml")
+        if not find_nodes_by_content_desc(lan_root, "probe-host-button"):
+            if not maybe_tap_content_desc(serial, lan_root, "Expand LAN pairing"):
+                maybe_tap_text(serial, lan_root, "Advanced LAN Pairing")
+        lan_root, _ = scroll_until_any_text(
             serial,
-            "probe-host-button",
+            ["Probe Host", "probe-host-button"],
             run_root / "screenshots" / "wait-probe-host.xml",
-            timeout_s=30.0,
+            timeout_s=45.0,
         )
-        tap_content_desc(serial, lan_root, "probe-host-button")
+        if find_nodes_by_content_desc(lan_root, "probe-host-button"):
+            tap_content_desc(serial, lan_root, "probe-host-button")
+        else:
+            if not maybe_tap_text(serial, lan_root, "Probe Host"):
+                if not maybe_tap_text_containing(serial, lan_root, "Probe Host"):
+                    raise HarnessError("Probe Host button was visible but could not be tapped")
         wait_for_any_text(serial, ["LAN Hosts", "Team App Host"], run_root / "screenshots" / "wait-lan-hosts.xml", timeout_s=45.0)
         result["steps"].append(capture_step(serial, run_root, "03_host_probed", "Host probe completed and the LAN host card became visible."))
 
-        pair_root = scroll_until_content_desc(
+        pair_root, _ = scroll_until_any_text(
             serial,
-            "pair-lan-host-button",
+            ["Pair LAN Host", "Use This Host"],
             run_root / "screenshots" / "wait-pair-lan-host.xml",
-            timeout_s=20.0,
+            timeout_s=45.0,
         )
-        tap_content_desc(serial, pair_root, "pair-lan-host-button")
+        if find_nodes_by_content_desc(pair_root, "pair-lan-host-button"):
+            tap_content_desc(serial, pair_root, "pair-lan-host-button")
+        else:
+            if not maybe_tap_text(serial, pair_root, "Pair LAN Host"):
+                if not maybe_tap_text(serial, pair_root, "Use This Host"):
+                    raise HarnessError("No visible LAN pairing action was available")
         post_pair_root = dump_ui(serial, run_root / "screenshots" / "after-pair.xml")
         if not find_nodes(post_pair_root, text="Start Session"):
             maybe_tap_text(serial, post_pair_root, "Sessions")
         wait_for_text(serial, "Start Session", run_root / "screenshots" / "wait-sessions.xml", timeout_s=90.0)
+        ensure_active_host_selected(serial, run_root)
         result["steps"].append(capture_step(serial, run_root, "04_sessions_paired", "Host paired over LAN through the visible UI and Sessions loaded."))
 
-        sessions_root = scroll_until_content_desc(
+        sessions_root = wait_for_content_desc(
+            serial,
+            "start-session-prompt-input",
+            run_root / "screenshots" / "wait-start-session-input.xml",
+            timeout_s=45.0,
+        )
+        focus_and_type(serial, sessions_root, "start-session-prompt-input", args.prompt)
+        result["steps"].append(capture_step(serial, run_root, "05_session_prompt_ready", "Sessions screen with the launch prompt entered through the visible UI."))
+
+        previous_runtime_ids = {str(entry.get("instance_id") or "") for entry in runtime_entries()}
+        sessions_root = wait_for_content_desc(
             serial,
             "start-session-button",
-            run_root / "screenshots" / "sessions-before-start.xml",
-            timeout_s=45.0,
-            minimum_height=40,
+            run_root / "screenshots" / "wait-start-session-button.xml",
+            timeout_s=30.0,
         )
         tap_content_desc(serial, sessions_root, "start-session-button")
-        result["steps"].append(capture_step(serial, run_root, "05_session_launching", "Start Session pressed from the paired Sessions screen."))
+        result["steps"].append(capture_step(serial, run_root, "06_session_launching", "Start Session pressed from the paired Sessions screen."))
 
-        wait_for_any_text(
+        beacon_entry = wait_for_new_runtime_entry(previous_runtime_ids, timeout_s=180.0)
+        wait_for_content_desc(
             serial,
-            ["Session", "Actions", "Project Trust Required"],
-            run_root / "screenshots" / "wait-detail.xml",
-            timeout_s=120.0,
+            "detail-send-prompt-button",
+            run_root / "screenshots" / "wait-detail-actions.xml",
+            timeout_s=180.0,
         )
-        result["steps"].append(capture_step(serial, run_root, "06_session_detail", "Session detail screen after the host launched Team App."))
+        result["steps"].append(capture_step(serial, run_root, "07_session_detail", "Session detail screen after Team App launched and the session became controllable."))
+        result["team_app_initial"] = capture_team_app(beacon_entry, run_root, "07_session_detail")
 
-        deadline = time.time() + 90
-        beacon_entry = None
-        while time.time() < deadline:
-            try:
-                beacon_entry = latest_beacon_entry()
-                if beacon_entry.get("cmd_path") and Path(beacon_entry["cmd_path"]).exists():
-                    break
-            except Exception:  # noqa: BLE001
-                pass
-            time.sleep(1)
-        if not beacon_entry:
-            raise HarnessError("Team App beacon entry never became available")
+        detail_root = dump_ui(serial, run_root / "screenshots" / "trust-check.xml")
+        if find_nodes(detail_root, text="Project Trust Required"):
+            result["steps"].append(capture_step(serial, run_root, "08_trust_prompt", "Session detail showed a project trust prompt."))
+            tap_content_desc(serial, detail_root, "trust-approve-button")
+            wait_for_content_desc(
+                serial,
+                "detail-send-prompt-button",
+                run_root / "screenshots" / "wait-after-trust.xml",
+                timeout_s=90.0,
+            )
+            result["steps"].append(capture_step(serial, run_root, "09_trust_approved", "Project trust approved from the Android UI."))
 
-        result["team_app"] = capture_team_app(beacon_entry, run_root, "06_session_detail")
+        prompt_text = "android prompt status summary"
+        detail_root = wait_for_detail_prompt_ready(
+            serial,
+            run_root / "screenshots" / "wait-detail-prompt-input.xml",
+            timeout_s=45.0,
+        )
+        if find_nodes_by_content_desc(detail_root, "detail-prompt-input"):
+            focus_and_type(serial, detail_root, "detail-prompt-input", prompt_text)
+        else:
+            tap_text(serial, detail_root, "New prompt")
+            adb_input_text(serial, prompt_text)
+        send_root = wait_for_content_desc(
+            serial,
+            "detail-send-prompt-button",
+            run_root / "screenshots" / "wait-detail-send-prompt.xml",
+            timeout_s=30.0,
+        )
+        tap_content_desc(serial, send_root, "detail-send-prompt-button")
+        time.sleep(5)
+        result["steps"].append(capture_step(serial, run_root, "10_prompt_sent", "Prompt sent from the Android Session screen."))
+        result["team_app_after_prompt"] = capture_team_app(beacon_entry, run_root, "10_prompt_sent")
+
+        follow_up_text = "android follow up smallest fix"
+        detail_root = wait_for_content_desc(
+            serial,
+            "detail-follow-up-input",
+            run_root / "screenshots" / "wait-detail-follow-up-input.xml",
+            timeout_s=45.0,
+        )
+        focus_and_type(serial, detail_root, "detail-follow-up-input", follow_up_text)
+        send_root = wait_for_content_desc(
+            serial,
+            "detail-send-follow-up-button",
+            run_root / "screenshots" / "wait-detail-send-follow-up.xml",
+            timeout_s=30.0,
+        )
+        tap_content_desc(serial, send_root, "detail-send-follow-up-button")
+        time.sleep(5)
+        result["steps"].append(capture_step(serial, run_root, "11_follow_up_sent", "Follow-up sent from the Android Session screen."))
+        result["team_app_after_follow_up"] = capture_team_app(beacon_entry, run_root, "11_follow_up_sent")
+
+        nav_root = dump_ui(serial, run_root / "screenshots" / "before-close-nav.xml")
+        tap_content_desc(serial, nav_root, "nav-sessions")
+        wait_for_text(serial, "Sessions", run_root / "screenshots" / "wait-open-sessions.xml", timeout_s=60.0)
+        wait_for_open_sessions(
+            serial,
+            run_root / "screenshots" / "wait-open-sessions-ready.xml",
+            timeout_s=60.0,
+        )
+        sessions_root = scroll_until_content_desc_prefix(
+            serial,
+            "close-session-button-",
+            run_root / "screenshots" / "sessions-before-close.xml",
+            timeout_s=45.0,
+        )
+        tap_content_desc_prefix(serial, sessions_root, "close-session-button-")
+        confirm_root = wait_for_text(serial, "Close session?", run_root / "screenshots" / "wait-close-confirm.xml", timeout_s=30.0)
+        tap_text(serial, confirm_root, "Close session")
+        wait_for_runtime_entry_absent(str(beacon_entry.get("instance_id") or ""), timeout_s=120.0)
+        time.sleep(3)
+        result["steps"].append(capture_step(serial, run_root, "12_session_closed", "Session closed from the Android Sessions screen and disappeared from Team App beacon runtime entries."))
+
+        sessions_root = wait_for_content_desc(
+            serial,
+            "restore-session-button",
+            run_root / "screenshots" / "wait-restore-card.xml",
+            timeout_s=60.0,
+        )
+        if not maybe_tap_text(serial, sessions_root, "Use"):
+            raise HarnessError("No restore ref chip was available to drive the restore flow")
+        sessions_root = wait_for_content_desc(
+            serial,
+            "restore-session-button",
+            run_root / "screenshots" / "wait-restore-button.xml",
+            timeout_s=30.0,
+        )
+        post_close_ids = {str(entry.get("instance_id") or "") for entry in runtime_entries()}
+        tap_content_desc(serial, sessions_root, "restore-session-button")
+        restored_entry = wait_for_new_runtime_entry(post_close_ids, timeout_s=180.0)
+        wait_for_detail_prompt_ready(
+            serial,
+            run_root / "screenshots" / "wait-restored-detail.xml",
+            timeout_s=180.0,
+        )
+        result["steps"].append(capture_step(serial, run_root, "13_session_restored", "Restore flow reopened a Team App session from the Android Sessions screen."))
+        result["team_app_after_restore"] = capture_team_app(restored_entry, run_root, "13_session_restored")
+
         result["success"] = True
         return result
     finally:
         adb(serial, "shell", "am", "force-stop", PACKAGE_ID, timeout=15, check=False)
         try:
-            entry = latest_beacon_entry()
-            if entry.get("cmd_path") and Path(entry["cmd_path"]).exists():
-                send_team_app_command(entry, {"cmd": "close_app"}, timeout_s=10.0)
+            for entry in runtime_entries():
+                if entry.get("cmd_path") and Path(entry["cmd_path"]).exists():
+                    send_team_app_command(entry, {"cmd": "close_app"}, timeout_s=10.0)
         except Exception:
             pass
         stop_process(host_process)
