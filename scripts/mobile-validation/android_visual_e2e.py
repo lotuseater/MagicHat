@@ -139,13 +139,36 @@ def reset_app_state(serial: str) -> None:
     adb(serial, "shell", "wm", "dismiss-keyguard", timeout=15, check=False)
 
 
-def get_live_local_pairing_code() -> str:
+def get_live_local_pairing() -> tuple[str, int]:
     try:
         with urllib.request.urlopen("http://127.0.0.1:18765/admin/v1/pairing", timeout=5) as response:
             payload = json.loads(response.read().decode("utf-8"))
-            return str(payload.get("pairing_code") or "").strip()
+            return (
+                str(payload.get("pairing_code") or "").strip(),
+                int(payload.get("pairing_expires_at_ms") or 0),
+            )
     except Exception:
-        return ""
+        return "", 0
+
+
+def get_live_local_pairing_code() -> str:
+    code, _ = get_live_local_pairing()
+    return code
+
+
+def get_stable_local_pairing_code(*, min_remaining_ms: int = 120_000) -> str:
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        code, expires_at_ms = get_live_local_pairing()
+        if not code:
+            time.sleep(1)
+            continue
+        remaining_ms = expires_at_ms - int(time.time() * 1000)
+        if remaining_ms >= min_remaining_ms:
+            return code
+        sleep_s = max(1.0, min(remaining_ms / 1000.0 + 1.0, 5.0))
+        time.sleep(sleep_s)
+    return get_live_local_pairing_code()
 
 
 def existing_local_pairing_code() -> str:
@@ -594,6 +617,28 @@ def wait_for_open_sessions(serial: str, ui_path: Path, *, timeout_s: float = 45.
     raise HarnessError("Open session rows did not become visible")
 
 
+def wait_for_sessions_prompt_ready(serial: str, ui_path: Path, *, timeout_s: float = 60.0) -> ET.Element:
+    deadline = time.time() + timeout_s
+    last_error = None
+    while time.time() < deadline:
+        try:
+            root = dump_ui(serial, ui_path)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            time.sleep(1)
+            continue
+        if dismiss_system_dialogs(serial, root):
+            continue
+        if find_nodes_by_content_desc(root, "start-session-prompt-input"):
+            return root
+        if find_nodes_by_content_desc(root, "nav-sessions"):
+            maybe_tap_content_desc(serial, root, "nav-sessions")
+        elif find_nodes(root, text="Sessions"):
+            maybe_tap_text(serial, root, "Sessions")
+        time.sleep(1)
+    raise HarnessError(f"Sessions launch prompt did not become ready; last_error={last_error}")
+
+
 def ensure_active_host_selected(serial: str, run_root: Path) -> ET.Element:
     sessions_root = dump_ui(serial, run_root / "screenshots" / "ensure-active-host-sessions.xml")
     offline = find_nodes_containing(sessions_root, text="Host is offline or unreachable")
@@ -802,7 +847,7 @@ def run_flow(args: argparse.Namespace) -> dict:
             serial,
             extras={
                 "magichat.automation.lan_base_url": base_url,
-                "magichat.automation.pairing_code": pairing_code,
+                "magichat.automation.pairing_code": get_stable_local_pairing_code() or pairing_code,
             },
         )
         wait_for_text(serial, "Advanced LAN Pairing", run_root / "screenshots" / "wait-lan-ready.xml", timeout_s=90.0)
@@ -844,11 +889,15 @@ def run_flow(args: argparse.Namespace) -> dict:
             maybe_tap_text(serial, post_pair_root, "Sessions")
         wait_for_text(serial, "Start Session", run_root / "screenshots" / "wait-sessions.xml", timeout_s=90.0)
         ensure_active_host_selected(serial, run_root)
+        wait_for_sessions_prompt_ready(
+            serial,
+            run_root / "screenshots" / "wait-sessions-prompt-ready.xml",
+            timeout_s=45.0,
+        )
         result["steps"].append(capture_step(serial, run_root, "04_sessions_paired", "Host paired over LAN through the visible UI and Sessions loaded."))
 
-        sessions_root = wait_for_content_desc(
+        sessions_root = wait_for_sessions_prompt_ready(
             serial,
-            "start-session-prompt-input",
             run_root / "screenshots" / "wait-start-session-input.xml",
             timeout_s=45.0,
         )

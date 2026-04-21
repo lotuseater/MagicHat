@@ -143,4 +143,68 @@ describe("/v1/cli-instances", () => {
     const response = await ctx.http.get("/v1/cli-instances/nope", { token });
     expect(response.status).toBe(404);
   });
+
+  it("surfaces CLI sessions through the main /v1/instances API", async () => {
+    const child = fakeChild();
+    const manager = new CliInstancesManager({ spawnImpl: () => child, ptySpawnImpl: null });
+    ctx = await createRuntime({ cliInstancesManager: manager });
+    const token = await pairDevice(ctx);
+
+    const launch = await ctx.http.post("/v1/cli-instances", {
+      token,
+      body: { preset: "codex", title: "single agent visible", initial_prompt: "hello" },
+    });
+    const id = launch.body.instance_id;
+
+    child.stdout.emit("data", Buffer.from("Working on it\n", "utf8"));
+
+    const list = await ctx.http.get("/v1/instances", { token });
+    expect(list.status).toBe(200);
+    expect(list.body.instances).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          instance_id: id,
+          phase: "running",
+          status: "running",
+        }),
+      ]),
+    );
+
+    const detail = await ctx.http.get(`/v1/instances/${id}`, { token });
+    expect(detail.status).toBe(200);
+    expect(detail.body.instance_id).toBe(id);
+    expect(detail.body.current_task_state.run_mode).toBe("agent");
+    expect(detail.body.terminals_by_agent.erasmus).toContain("Working on it");
+  });
+
+  it("routes prompt and close commands for CLI sessions through the main /v1/instances API", async () => {
+    const child = fakeChild();
+    const manager = new CliInstancesManager({ spawnImpl: () => child, ptySpawnImpl: null });
+    ctx = await createRuntime({ cliInstancesManager: manager });
+    const token = await pairDevice(ctx);
+
+    const launch = await ctx.http.post("/v1/cli-instances", {
+      token,
+      body: { preset: "codex", title: "single agent visible" },
+    });
+    const id = launch.body.instance_id;
+
+    const prompt = await ctx.http.post(`/v1/instances/${id}/prompt`, {
+      token,
+      body: { prompt: "continue" },
+    });
+    expect(prompt.status).toBe(202);
+
+    const followUp = await ctx.http.post(`/v1/instances/${id}/follow-up`, {
+      token,
+      body: { message: "more detail" },
+    });
+    expect(followUp.status).toBe(202);
+    expect(child.stdin.write).toHaveBeenCalledWith("continue\n");
+    expect(child.stdin.write).toHaveBeenCalledWith("more detail\n");
+
+    const close = await ctx.http.delete(`/v1/instances/${id}`, { token });
+    expect(close.status).toBe(202);
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
 });

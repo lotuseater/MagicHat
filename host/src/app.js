@@ -270,6 +270,7 @@ export function createMagicHatRuntime(options = {}) {
       beaconStore,
       ipcClient,
       lifecycleManager,
+      cliInstancesManager,
       remoteAccessState,
       quickActionsService,
     });
@@ -809,24 +810,7 @@ export function createMagicHatRuntime(options = {}) {
   app.get(
     "/v1/instances/:pid/poll",
     asyncRoute(async (req, res) => {
-      const instance = await hostControlService.requireInstance(req.params.pid);
-      const inspect = await ipcClient.inspect(instance, {
-        include_chat: parseBoolean(req.query.include_chat, true),
-        include_summary: parseBoolean(req.query.include_summary, true),
-        include_terminals: parseBoolean(req.query.include_terminals, true),
-      });
-      res.json({
-        ...hostControlService.toLanInstance(instance),
-        status: inspect?.status || "error",
-        snapshot: inspect?.snapshot || {},
-        chat: Array.isArray(inspect?.chat) ? inspect.chat : [],
-        summary_text: typeof inspect?.summary_text === "string" ? inspect.summary_text : "",
-        terminals_by_agent:
-          inspect?.terminals_by_agent && typeof inspect?.terminals_by_agent === "object"
-            ? inspect.terminals_by_agent
-            : {},
-        run_log_path: inspect?.run_log_path || "",
-      });
+      res.json(await hostControlService.getInstanceDetail(req.params.pid));
     }),
   );
 
@@ -850,27 +834,14 @@ export function createMagicHatRuntime(options = {}) {
         closed = true;
       });
 
-      while (!closed) {
-        const current = await beaconStore.getInstanceById(req.params.pid);
-        if (!current) {
-          res.write(toSseEvent("instance_missing", cursor, { pid: req.params.pid }));
-          break;
-        }
-
-        const update = await ipcClient.tailEvents(current, cursor);
-        if (update.events.length > 0) {
-          let rollingId = cursor;
-          for (const event of update.events) {
-            rollingId += 1;
-            res.write(toSseEvent(update.source, rollingId, event));
-          }
-        } else {
-          res.write(toSseEvent("heartbeat", cursor, { ts: Date.now() }));
-        }
-
-        cursor = update.next_cursor;
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
+      await hostControlService.streamInstanceUpdates(req.params.pid, {
+        cursor,
+        isClosed: () => closed,
+        onChunk: async (source, event) => {
+          cursor += 1;
+          res.write(toSseEvent(source, cursor, event));
+        },
+      });
 
       res.end();
     }),

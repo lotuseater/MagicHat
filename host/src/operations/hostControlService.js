@@ -49,6 +49,7 @@ export class HostControlService {
     beaconStore,
     ipcClient,
     lifecycleManager,
+    cliInstancesManager,
     remoteAccessState,
     quickActionsService,
     launchDedupWindowMs,
@@ -56,6 +57,7 @@ export class HostControlService {
     this.beaconStore = beaconStore;
     this.ipcClient = ipcClient;
     this.lifecycleManager = lifecycleManager;
+    this.cliInstancesManager = cliInstancesManager || null;
     this.remoteAccessState = remoteAccessState;
     this.quickActionsService = quickActionsService || null;
     this.launchDedupWindowMs = launchDedupWindowMs ?? 15_000;
@@ -63,22 +65,40 @@ export class HostControlService {
   }
 
   async listInstances() {
-    const instances = await this.beaconStore.listInternalInstances();
-    this.remoteAccessState?.rememberRestoreRefsFromInstances(instances);
-    return instances.map((entry) => this.toLanInstance(entry));
+    const [teamInstances, cliInstances] = await Promise.all([
+      this.beaconStore.listInternalInstances(),
+      this.listCliInstances(),
+    ]);
+    this.remoteAccessState?.rememberRestoreRefsFromInstances(teamInstances);
+    return [
+      ...teamInstances.map((entry) => this.toLanInstance(entry)),
+      ...cliInstances.map((entry) => this.toLanCliInstance(entry)),
+    ].sort((left, right) => (Number(right.started_at) || 0) - (Number(left.started_at) || 0));
   }
 
   async listRemoteInstances() {
-    const instances = await this.beaconStore.listInternalInstances();
-    this.remoteAccessState?.rememberRestoreRefsFromInstances(instances);
-    return instances.map((entry) => this.toRemoteInstance(entry));
+    const [teamInstances, cliInstances] = await Promise.all([
+      this.beaconStore.listInternalInstances(),
+      this.listCliInstances(),
+    ]);
+    this.remoteAccessState?.rememberRestoreRefsFromInstances(teamInstances);
+    return [
+      ...teamInstances.map((entry) => this.toRemoteInstance(entry)),
+      ...cliInstances.map((entry) => this.toRemoteCliInstance(entry)),
+    ].sort((left, right) => (Number(right.started_at) || 0) - (Number(left.started_at) || 0));
   }
 
   async getInstance(instanceId) {
+    if (this.isCliInstanceId(instanceId)) {
+      return this.getCliInstance(instanceId);
+    }
     return this.beaconStore.getInstanceById(instanceId);
   }
 
   async getInstanceDetail(instanceId) {
+    if (this.isCliInstanceId(instanceId)) {
+      return this.getCliInstanceDetail(instanceId);
+    }
     const instance = await this.requireInstance(instanceId);
     this.remoteAccessState?.rememberRestoreRefsFromInstances([instance]);
     const inspect = await this.ipcClient.inspect(instance, {
@@ -236,6 +256,9 @@ export class HostControlService {
   }
 
   async closeInstance(instanceId) {
+    if (this.isCliInstanceId(instanceId)) {
+      return this.cliInstancesManager.closeInstance(instanceId);
+    }
     const instance = await this.requireInstance(instanceId);
     await this.ipcClient.sendCommand(instance, {
       cmd: "close_instance",
@@ -249,6 +272,9 @@ export class HostControlService {
     const quickAction = await this.quickActionsService?.executeHookText(prompt);
     if (quickAction) {
       return quickAction;
+    }
+    if (this.isCliInstanceId(instanceId)) {
+      return this.cliInstancesManager.sendPrompt(instanceId, prompt);
     }
     const instance = await this.requireInstance(instanceId);
     return this.ipcClient.sendCommand(instance, {
@@ -264,6 +290,9 @@ export class HostControlService {
     if (quickAction) {
       return quickAction;
     }
+    if (this.isCliInstanceId(instanceId)) {
+      return this.cliInstancesManager.sendPrompt(instanceId, message);
+    }
     const instance = await this.requireInstance(instanceId);
     return this.ipcClient.sendCommand(instance, {
       cmd: "submit_follow_up",
@@ -274,6 +303,11 @@ export class HostControlService {
   }
 
   async answerTrustPrompt(instanceId, approved) {
+    if (this.isCliInstanceId(instanceId)) {
+      const error = new Error("not_supported");
+      error.code = "not_supported";
+      throw error;
+    }
     const instance = await this.requireInstance(instanceId);
     return this.ipcClient.sendCommand(instance, {
       cmd: "answer_trust_prompt",
@@ -284,6 +318,11 @@ export class HostControlService {
   }
 
   async restoreExistingInstance(instanceId, { restoreStatePath, restoreRef, remoteSafe = false }) {
+    if (this.isCliInstanceId(instanceId)) {
+      const error = new Error("not_supported");
+      error.code = "not_supported";
+      throw error;
+    }
     const instance = await this.requireInstance(instanceId);
     let resolvedRestorePath = restoreStatePath || null;
     if (remoteSafe) {
@@ -308,6 +347,9 @@ export class HostControlService {
   }
 
   async streamInstanceUpdates(instanceId, { cursor = 0, onChunk, isClosed = () => false, pollIntervalMs = 1000 }) {
+    if (this.isCliInstanceId(instanceId)) {
+      return this.streamCliInstanceUpdates(instanceId, { cursor, onChunk, isClosed, pollIntervalMs });
+    }
     let rollingCursor = Number.isFinite(Number(cursor)) ? Math.max(Number(cursor), 0) : 0;
 
     while (!isClosed()) {
@@ -331,6 +373,9 @@ export class HostControlService {
   }
 
   async requireInstance(instanceId) {
+    if (this.isCliInstanceId(instanceId)) {
+      return this.getCliInstance(instanceId);
+    }
     const instance = await this.beaconStore.getInstanceById(instanceId);
     if (!instance) {
       const error = new Error("instance_not_found");
@@ -351,6 +396,37 @@ export class HostControlService {
     return {
       ...this.beaconStore.toPublicInstance(instance),
       restore_ref: restoreRef || null,
+    };
+  }
+
+  toLanCliInstance(instance) {
+    return {
+      id: instance.instance_id,
+      instance_id: instance.instance_id,
+      pid: instance.pid,
+      hwnd: null,
+      session_id: instance.instance_id,
+      phase: this.cliPhase(instance),
+      current_task_state: {
+        phase: this.cliPhase(instance),
+        task: instance.title,
+        run_mode: "agent",
+        launcher_preset: instance.preset,
+      },
+      started_at: instance.started_at,
+      result_summary: {
+        short_text: this.cliShortText(instance),
+        source: "cli_output",
+        truncated: !!instance.output_truncated,
+      },
+      status: instance.status,
+      snapshot: this.cliSnapshot(instance),
+      chat: this.cliChat(instance),
+      summary_text: this.cliSummaryText(instance),
+      terminals_by_agent: {
+        erasmus: typeof instance.output === "string" ? instance.output : "",
+      },
+      restore_ref: null,
     };
   }
 
@@ -376,6 +452,32 @@ export class HostControlService {
     });
   }
 
+  toRemoteCliInstance(instance) {
+    return stripSensitivePaths({
+      id: instance.instance_id,
+      instance_id: instance.instance_id,
+      title: instance.title,
+      active: instance.status === "running" || instance.status === "closing",
+      health: this.cliPhase(instance),
+      phase: this.cliPhase(instance),
+      pid: instance.pid,
+      session_id: instance.instance_id,
+      current_task_state: {
+        phase: this.cliPhase(instance),
+        task: instance.title,
+        run_mode: "agent",
+        launcher_preset: instance.preset,
+      },
+      started_at: instance.started_at,
+      result_summary: {
+        short_text: this.cliShortText(instance),
+        source: "cli_output",
+        truncated: !!instance.output_truncated,
+      },
+      restore_ref: null,
+    });
+  }
+
   toRemoteDetail(detail) {
     const restoreRef = detail.restore_state_path
       ? this.remoteAccessState?.rememberRestorePath(detail.restore_state_path, {
@@ -397,5 +499,116 @@ export class HostControlService {
 
   toRemoteEvent(event) {
     return stripSensitivePaths(event);
+  }
+
+  isCliInstanceId(instanceId) {
+    return typeof instanceId === "string" && instanceId.startsWith("cli_");
+  }
+
+  async listCliInstances() {
+    if (!this.cliInstancesManager) {
+      return [];
+    }
+    return this.cliInstancesManager.listInstances();
+  }
+
+  getCliInstance(instanceId) {
+    if (!this.cliInstancesManager) {
+      const error = new Error("cli_instance_not_found");
+      error.code = "cli_instance_not_found";
+      throw error;
+    }
+    return this.cliInstancesManager.getInstance(instanceId);
+  }
+
+  async getCliInstanceDetail(instanceId) {
+    const instance = this.getCliInstance(instanceId);
+    return this.toLanCliInstance(instance);
+  }
+
+  async streamCliInstanceUpdates(instanceId, { cursor = 0, onChunk, isClosed = () => false, pollIntervalMs = 1000 }) {
+    const sinceTs = Number.isFinite(Number(cursor)) ? Math.max(Number(cursor), 0) : 0;
+    let stop = null;
+    let closed = false;
+    stop = this.cliInstancesManager.observeInstance(instanceId, {
+      sinceTs,
+      onEvent: async (event) => {
+        if (closed || isClosed()) {
+          return;
+        }
+        await onChunk(event.source || "cli", this.toRemoteEvent(event));
+      },
+    });
+    while (!closed && !isClosed()) {
+      await onChunk("heartbeat", { ts: Date.now() });
+      await sleep(pollIntervalMs);
+    }
+    closed = true;
+    try {
+      stop?.();
+    } catch {
+      // ignore observer cleanup failures
+    }
+  }
+
+  cliPhase(instance) {
+    if (instance.status === "running") {
+      return "running";
+    }
+    if (instance.status === "closing") {
+      return "closing";
+    }
+    return "finished";
+  }
+
+  cliShortText(instance) {
+    const output = typeof instance.output === "string" ? instance.output.trim() : "";
+    if (output) {
+      const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (lines.length > 0) {
+        return lines[lines.length - 1].slice(0, 200);
+      }
+    }
+    return instance.title || instance.preset_label || instance.instance_id;
+  }
+
+  cliSummaryText(instance) {
+    return typeof instance.output === "string" ? instance.output : "";
+  }
+
+  cliChat(instance) {
+    const output = typeof instance.output === "string" ? instance.output.trim() : "";
+    if (!output) {
+      return [];
+    }
+    return [
+      {
+        role: "assistant",
+        text: output,
+      },
+    ];
+  }
+
+  cliSnapshot(instance) {
+    return {
+      phase: this.cliPhase(instance),
+      task_state: {
+        phase: this.cliPhase(instance),
+        task: instance.title,
+        run_mode: "agent",
+        launcher_preset: instance.preset,
+      },
+      cli_instance: {
+        preset: instance.preset,
+        status: instance.status,
+        command: instance.command,
+        args: instance.args,
+        exit_code: instance.exit_code,
+        exit_signal: instance.exit_signal,
+        event_count: instance.event_count,
+        output_truncated: !!instance.output_truncated,
+        total_output_chars: instance.total_output_chars,
+      },
+    };
   }
 }
